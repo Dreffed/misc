@@ -14,6 +14,8 @@ for f in scanFiles('./'):
         interval = len(data['files']) // 10
         for f in data['files']:
             step += 1
-            if step % interval == 0:
+            #if step % interval == 0:
+            #if 'thunderbird' in f['folder'].lower():
+            if '.zip' in f['file'].lower():
                 print(f)
 
