@@ -167,35 +167,7 @@ if __name__ == '__main__':
     folders = [
         {
             'root_name': 'TB_1', 
-            'folder':'/media/dreffed/ST1000DM003_9YN1'
-        },
-        {
-            'root_name': 'TB_2', 
-            'folder':'/media/dreffed/ST31000524AS'
-        },
-        {
-            'root_name': 'TB_3', 
-            'folder':'/media/dreffed/ST2000DM001_1CH1'
-        },
-        {
-            'root_name': 'TB_4', 
-            'folder':'/media/dreffed/Media'
-        },
-        {
-            'root_name': 'TB_5', 
-            'folder':'/media/dreffed/Home'
-        },
-        {
-            'root_name': 'TB_6', 
-            'folder':'/media/dreffed/Opt'
-        },
-        {
-            'root_name': 'TB_7', 
-            'folder':'/media/dreffed/4436CC9036CC8500'
-        },
-        {
-            'root_name': 'TB_8', 
-            'folder':'/media/dreffed/4EE44E56E44E4107'
+            'folder':'/'
         }
     ]
 
