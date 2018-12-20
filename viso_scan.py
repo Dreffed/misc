@@ -2,8 +2,8 @@ import sys
 import win32com.client
 import os
 
-path = ['~', 'OneDrive - Great Canadian Railtour Co', 'RockyMountaineer', 'Projects', 'IT2017033 - Cornelius']
-filename = 'Cornelius_EA.vsdx'
+path = ['~']
+filename = '*.vsdx'
 
 path.append(filename)
 
@@ -37,3 +37,4 @@ try:
     visio.Quit()
 except Exception as e:
     print("Error opening file {}".format(e))
+
