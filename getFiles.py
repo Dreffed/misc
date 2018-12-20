@@ -4,6 +4,7 @@ import stat
 import time
 import pickle
 import hashlib
+import json
 
 def get_pickle_data(pickleName):
     data = {}
@@ -26,7 +27,7 @@ def get_info(filepath):
         access_time = time.strftime(time_format,time.localtime(file_stats[stat.ST_ATIME]))
         file_size = file_stats[stat.ST_SIZE]
 
-    except Exception as e:
+    except:
         modification_time, access_time, file_size = ["","",0]
 
     return modification_time, access_time, file_size
@@ -34,7 +35,7 @@ def get_info(filepath):
 def scanFiles(folder):
     """ This method will recursively scan the specified folder and add records if neccessary"""
  
-    for dirpath, dirnames, filenames in os.walk(folder):
+    for dirpath, _, filenames in os.walk(folder):
         for filename in filenames:
             filepath = os.path.join(dirpath,filename)
 
@@ -164,40 +165,22 @@ def scan_folders(folder, root_name):
     print('Found {} unique hashes, {} duplicates'.format(len(file_hashes), duplicates))
 
 if __name__ == '__main__':
-    folders = [
-        {
-            'root_name': 'TB_1', 
-            'folder':'/media/dreffed/ST1000DM003_9YN1'
-        },
-        {
-            'root_name': 'TB_2', 
-            'folder':'/media/dreffed/ST31000524AS'
-        },
-        {
-            'root_name': 'TB_3', 
-            'folder':'/media/dreffed/ST2000DM001_1CH1'
-        },
-        {
-            'root_name': 'TB_4', 
-            'folder':'/media/dreffed/Media'
-        },
-        {
-            'root_name': 'TB_5', 
-            'folder':'/media/dreffed/Home'
-        },
-        {
-            'root_name': 'TB_6', 
-            'folder':'/media/dreffed/Opt'
-        },
-        {
-            'root_name': 'TB_7', 
-            'folder':'/media/dreffed/4436CC9036CC8500'
-        },
-        {
-            'root_name': 'TB_8', 
-            'folder':'/media/dreffed/4EE44E56E44E4107'
-        }
-    ]
+    config_path = 'getfiles_settings.json'
+    folder_cnf_data = {}
+
+    if os.path.exists(config_path):
+        folder_cnf_data = json.load(open(config_path))
+
+    else:
+        folder_cnf_data['folders'] = [
+            {
+                'root_name': 'root', 
+                'folder':'/'
+            }
+        ]
+        with open(config_path, 'w') as outfile:
+            json.dump(folder_cnf_data, outfile)
+    folders = folder_cnf_data['folders']
 
     for item in folders:
         print('Scanning...\n\t{} -> {}'.format(item['root_name'], item['folder']))
