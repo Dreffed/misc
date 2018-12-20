@@ -26,7 +26,7 @@ def get_info(filepath):
         access_time = time.strftime(time_format,time.localtime(file_stats[stat.ST_ATIME]))
         file_size = file_stats[stat.ST_SIZE]
 
-    except Exception as e:
+    except:
         modification_time, access_time, file_size = ["","",0]
 
     return modification_time, access_time, file_size
@@ -34,7 +34,7 @@ def get_info(filepath):
 def scanFiles(folder):
     """ This method will recursively scan the specified folder and add records if neccessary"""
  
-    for dirpath, dirnames, filenames in os.walk(folder):
+    for dirpath, _, filenames in os.walk(folder):
         for filename in filenames:
             filepath = os.path.join(dirpath,filename)
 
