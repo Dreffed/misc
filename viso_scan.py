@@ -50,11 +50,13 @@ def process_visiofile(filepath):
                         if len(shape_dets) > 1:
                             page_data['objects'][shape_dets[0]][shape_dets[1]] = {}
                             page_data['objects'][shape_dets[0]][shape_dets[1]]['Text'] = shape.Text
-                            page_data['objects'][shape_dets[0]]['Containedin'] = contained_in.Name
+                            page_data['objects'][shape_dets[0]][shape_dets[1]]['Containedin'] = contained_in.Name
                         else:
                             page_data['objects'][shape_dets[0]]['0'] = {}
                             page_data['objects'][shape_dets[0]]['0']['Text'] = shape.Text
                             page_data['objects'][shape_dets[0]]['0']['Containedin'] = contained_in.Name
+
+                        print("\t{}\t[{}]\n===\n{}\n===".format(shape_name, contained_in, shape.Text))
                     except Exception as ex:
                         print("\t\t\tError {}".format(ex))
 
