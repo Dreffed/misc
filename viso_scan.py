@@ -59,10 +59,11 @@ def process_visiofile(filepath):
             dwg_file['subject'] = dwg.Subject  
             dwg_file['manager'] = dwg.Manager  
             dwg_file['category'] = dwg.Category 
-            dwg_file['pages'] = len(pages)
+            dwg_file['pagecount'] = len(pages)
             dwg_file['creator'] = dwg.Creator
             dwg_file['created'] = parse(str(dwg.TimeCreated))
             dwg_file['Saved'] = parse(str(dwg.TimeSaved))
+            dwg_file['pages'] = []
 
             for pg in pages:
                 shapes = pg.Shapes
@@ -84,7 +85,7 @@ def process_visiofile(filepath):
                     except Exception as ex:
                         print("\t{} [{}]\n\t\tError {}".format(shape.Name, shape.Type, ex))
 
-                dwg_file[pg.Name] = page_data
+                dwg_file['pages'].append(page_data)
                 
         except Exception as e:
             print("Error {}".format(e))
@@ -100,7 +101,25 @@ def process_visiofile(filepath):
 
 def summarize_data(data):
     '''This will scan the log file and produce stats in the data found'''
+    if not isinstance(data, dict):
+        return None
+    
+    if 'files' in data:
+        print('Files in older: {}\n\tFound:{}'.format(data['folders'], len(data['files'])))
 
+        for dwg_file in data['files']:
+            file_name = dwg_file['file']
+            print(file_name)
+            for dwg_page in dwg_file['pages']:
+                print('\t{}'.format(dwg_page['name']))
+                if 'objects' in dwg_page:
+                    for objectype in dwg_page['objects']:
+                        print('\t\t{}:{}'.format(objectype, len(dwg_page['objects'][objectype])))
+                        if objectype in ('Orthogonal', 'Process', 'Dynamic connector', 'Decision'):
+                            print(dwg_page['objects'][objectype])
+
+    else:
+        print('no files found in saved data! \n\tPath: {}'.format(data['folders']))
 
 config_path = 'visio_settings.json'
 pickle_file = 'visio_data.pickle'
@@ -135,3 +154,4 @@ for f in scanFiles(filepath):
         data['files'].append(dwg_file)
 
 save_pickle_data(data, pickle_file)
+summarize_data(data)
