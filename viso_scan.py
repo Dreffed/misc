@@ -3,6 +3,8 @@ import sys
 import win32com.client
 import os
 import json
+from datetime import datetime
+from dateutil.parser import parse
 
 def load_config(config_path):
     if os.path.exists(config_path):
@@ -16,6 +18,30 @@ def load_config(config_path):
             json.dump(cnf_data, outfile)
     return cnf_data
 
+def process_shape(shape):
+    shape_data = {}
+    shape_data['id'] = shape.ID 
+
+    shape_data['name'] = str(shape.Name)
+    shape_data['type'] = str(shape.Type)
+    shape_data['Text'] = shape.Text
+
+    shape_dets = str(shape.Name).split(".")
+    shape_data['name_type'] = shape_dets[0]
+    if len(shape_dets) <= 1:
+        shape_data['subid'] = '0'
+    else:
+        shape_data['subid'] = shape_dets[1]
+
+    shape_data['callouts'] = shape.CalloutsAssociated
+    if not shape_data['name_type'] == 'Dynamic connector':
+        shape_data['connected_shapes'] = shape.ConnectedShapes(0, "")
+    
+    contained_in = shape.ContainingShape
+    shape_data['containing_shape'] = contained_in.Name
+
+    return shape_data
+
 def process_visiofile(filepath):
     dwg_file = {}
     try:
@@ -26,39 +52,37 @@ def process_visiofile(filepath):
         try:
             pages = dwg.Pages
             dwg_file['name'] = dwg.Name
+            dwg_file['title'] = dwg.Title  
+            dwg_file['creator'] = dwg.Creator  
+            dwg_file['description'] = dwg.Description  
+            dwg_file['keywords'] = dwg.Keywords  
+            dwg_file['subject'] = dwg.Subject  
+            dwg_file['manager'] = dwg.Manager  
+            dwg_file['category'] = dwg.Category 
             dwg_file['pages'] = len(pages)
             dwg_file['creator'] = dwg.Creator
-            #dwg_file['created'] = dwg.TimeCreated
-            #dwg_file['Saved'] = dwg.TimeSaved
+            dwg_file['created'] = parse(str(dwg.TimeCreated))
+            dwg_file['Saved'] = parse(str(dwg.TimeSaved))
 
             for pg in pages:
                 shapes = pg.Shapes
                 page_data = {}
                 page_data['name'] = pg.Name
+                
                 page_data['shape_count'] = len(shapes)
                 page_data['objects'] = {}
 
                 for shape in shapes:
                     try:
-                        shape_name = str(shape.Name)
-                        shape_dets = shape_name.split(".")
-                        contained_in = shape.ContainingShape
+                        shape_data = process_shape(shape)
+                        shape_type = shape_data['name_type']
                         
-                        if not shape_dets[0] in page_data['objects']:
-                            page_data['objects'][shape_dets[0]] = {}
+                        if not shape_type in page_data['objects']:
+                            page_data['objects'][shape_type] = {}
+                        page_data['objects'][shape_type][shape.Name] = shape_data
 
-                        if len(shape_dets) > 1:
-                            page_data['objects'][shape_dets[0]][shape_dets[1]] = {}
-                            page_data['objects'][shape_dets[0]][shape_dets[1]]['Text'] = shape.Text
-                            page_data['objects'][shape_dets[0]][shape_dets[1]]['Containedin'] = contained_in.Name
-                        else:
-                            page_data['objects'][shape_dets[0]]['0'] = {}
-                            page_data['objects'][shape_dets[0]]['0']['Text'] = shape.Text
-                            page_data['objects'][shape_dets[0]]['0']['Containedin'] = contained_in.Name
-
-                        print("\t{}\t[{}]\n===\n{}\n===".format(shape_name, contained_in, shape.Text))
                     except Exception as ex:
-                        print("\t\t\tError {}".format(ex))
+                        print("\t{} [{}]\n\t\tError {}".format(shape.Name, shape.Type, ex))
 
                 dwg_file[pg.Name] = page_data
                 
@@ -73,6 +97,10 @@ def process_visiofile(filepath):
         visio.Quit()
 
     return dwg_file
+
+def summarize_data(data):
+    '''This will scan the log file and produce stats in the data found'''
+
 
 config_path = 'visio_settings.json'
 pickle_file = 'visio_data.pickle'
@@ -100,8 +128,8 @@ for f in scanFiles(filepath):
         # add the file details...
         dwg_file['folder'] = f['folder']
         dwg_file['file'] = f['file']
-        #dwg_file['modified'] = f['modified']
-        #dwg_file['accessed'] = f['accessed']
+        dwg_file['modified'] = parse(f['modified'])
+        dwg_file['accessed'] = parse(f['accessed'])
         dwg_file['size'] = f['size']
 
         data['files'].append(dwg_file)
