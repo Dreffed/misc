@@ -36,9 +36,23 @@ def process_shape(shape):
     shape_data['callouts'] = shape.CalloutsAssociated
     if not shape_data['name_type'] == 'Dynamic connector':
         shape_data['connected_shapes'] = shape.ConnectedShapes(0, "")
-    
+    else:
+        shape_data['connects'] = []
+        connected_shapes = shape.connects
+
+        for connector in connected_shapes:
+            if connector.FromSheet.Id == shape_data['id']:
+                shape_data['connects'].append({"type": "from", "id": connector.ToSheet.Id})
+            else:
+                shape_data['connects'].append({"type": "to", "id": connector.FromSheet.Id})
+        print('{} -> {}'.format(shape_data['id'], shape_data['connects']))
+
     contained_in = shape.ContainingShape
     shape_data['containing_shape'] = contained_in.Name
+
+    shape_members = shape.ContainerProperties
+    if shape_members is not None:
+        shape_data['contained_shapes'] = shape_members.GetMemberShapes(16)
 
     return shape_data
 
@@ -99,28 +113,6 @@ def process_visiofile(filepath):
 
     return dwg_file
 
-def summarize_data(data):
-    '''This will scan the log file and produce stats in the data found'''
-    if not isinstance(data, dict):
-        return None
-    
-    if 'files' in data:
-        print('Files in older: {}\n\tFound:{}'.format(data['folders'], len(data['files'])))
-
-        for dwg_file in data['files']:
-            file_name = dwg_file['file']
-            print(file_name)
-            for dwg_page in dwg_file['pages']:
-                print('\t{}'.format(dwg_page['name']))
-                if 'objects' in dwg_page:
-                    for objectype in dwg_page['objects']:
-                        print('\t\t{}:{}'.format(objectype, len(dwg_page['objects'][objectype])))
-                        if objectype in ('Orthogonal', 'Process', 'Dynamic connector', 'Decision'):
-                            print(dwg_page['objects'][objectype])
-
-    else:
-        print('no files found in saved data! \n\tPath: {}'.format(data['folders']))
-
 config_path = 'visio_settings.json'
 pickle_file = 'visio_data.pickle'
 cnf_data = load_config(config_path)
@@ -154,4 +146,3 @@ for f in scanFiles(filepath):
         data['files'].append(dwg_file)
 
 save_pickle_data(data, pickle_file)
-summarize_data(data)
