@@ -36,10 +36,10 @@ def process_shape(shape):
     shape_data['callouts'] = shape.CalloutsAssociated
     if not shape_data['name_type'] == 'Dynamic connector':
         shape_data['connected_shapes'] = shape.ConnectedShapes(0, "")
-    else:
+    #else:
+    connected_shapes = shape.connects
+    if len(connected_shapes) > 0:
         shape_data['connects'] = []
-        connected_shapes = shape.connects
-
         for connector in connected_shapes:
             if connector.FromSheet.Id == shape_data['id']:
                 shape_data['connects'].append({"type": "from", "id": connector.ToSheet.Id})
