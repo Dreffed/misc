@@ -1,4 +1,4 @@
-from getFiles import scanFiles, get_info, get_pickle_data, save_pickle_data
+from getFiles import scanFiles, get_info, get_pickle_data, save_pickle_data, make_hash
 import sys
 import win32com.client
 import os
@@ -106,9 +106,8 @@ def process_visiofile(filepath):
             dwg_file['manager'] = dwg.Manager  
             dwg_file['category'] = dwg.Category 
             dwg_file['pagecount'] = len(pages)
-            dwg_file['creator'] = dwg.Creator
             dwg_file['created'] = parse(str(dwg.TimeCreated))
-            dwg_file['Saved'] = parse(str(dwg.TimeSaved))
+            dwg_file['saved'] = parse(str(dwg.TimeSaved))
             dwg_file['pages'] = []
 
             for pg in pages:
@@ -163,16 +162,41 @@ if not os.path.exists(filepath):
     logger.critical('Missing Path {}'.format(filepath))
     raise 'missing path'
 
-data = {}
-data['folders'] = path
-data['files'] = []
+data = get_pickle_data(pickle_file)
+if data == {}:
+    data['folders'] = path
+    data['filter'] = cnf_data['filter']
+    data['files'] = []
+    data['hashes'] = {}
 
 for f in scanFiles(filepath):
     filename, file_extension = os.path.splitext(f['file']) 
     if file_extension == cnf_data['filter']:
-        logger.debug('Filename: {}{}'.format(filename, file_extension))
+        logger.info('Scanning filename: {}{}'.format(filename, file_extension))
 
-        f_path = os.path.join(f['folder'], f['file'])
+        f_path = os.path.normpath(os.path.join(f['folder'], f['file']))
+        file_hash = make_hash(f_path)
+        file_hash_sha = file_hash['SHA1']
+
+        if not file_hash_sha in data['hashes']:
+            data['hashes'][file_hash_sha] = []
+
+        if not f_path in data['hashes'][file_hash_sha]:
+            logger.info('\tadding hash {{}}'.format(file_hash_sha))
+            data['hashes'][file_hash_sha].append(f_path)
+        
+        scan_file = True
+        for s in data['files']:
+            s_path = os.path.normpath(os.path.join(s['folder'], s['file']))
+            if f_path == s_path and s['hash']['SHA1'] == file_hash_sha:
+                # file has been scanned and has not changed by hash
+                logger.info('\tfile already scanned!')
+                scan_file = False
+                break
+        
+        if not scan_file:
+            continue
+
         dwg_file = process_visiofile(f_path)
 
         # add the file details...
@@ -181,7 +205,8 @@ for f in scanFiles(filepath):
         dwg_file['modified'] = parse(f['modified'])
         dwg_file['accessed'] = parse(f['accessed'])
         dwg_file['size'] = f['size']
+        dwg_file['hash'] = file_hash
 
-        data['files'].append(dwg_file)
+        data['files'].append(dwg_file)        
 
 save_pickle_data(data, pickle_file)
