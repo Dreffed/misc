@@ -7,6 +7,7 @@ from datetime import datetime
 from dateutil.parser import parse
 import logging
 from logging.config import fileConfig
+import uuid
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ def load_config(config_path):
 def process_shape(shape):
     shape_data = {}
     shape_data['id'] = shape.ID 
+    shape_data['GUID'] = uuid.uuid4()
 
     shape_data['name'] = str(shape.Name)
     shape_data['type'] = str(shape.Type)
@@ -97,6 +99,7 @@ def process_visiofile(filepath):
 
         try:
             pages = dwg.Pages
+            dwg_file['GUID'] = uuid.uuid4()
             dwg_file['name'] = dwg.Name
             dwg_file['title'] = dwg.Title  
             dwg_file['creator'] = dwg.Creator  
@@ -114,6 +117,7 @@ def process_visiofile(filepath):
                 shapes = pg.Shapes
                 page_data = {}
                 page_data['name'] = pg.Name
+                page_data['GUID'] = uuid.uuid4()
                 
                 page_data['shape_count'] = len(shapes)
                 page_data['objects'] = {}
@@ -171,6 +175,7 @@ if data == {}:
 
 for f in scanFiles(filepath):
     filename, file_extension = os.path.splitext(f['file']) 
+
     if file_extension == cnf_data['filter']:
         logger.info('Scanning filename: {}{}'.format(filename, file_extension))
 
@@ -182,7 +187,7 @@ for f in scanFiles(filepath):
             data['hashes'][file_hash_sha] = []
 
         if not f_path in data['hashes'][file_hash_sha]:
-            logger.info('\tadding hash {{}}'.format(file_hash_sha))
+            logger.info('\tadding hash {}'.format(file_hash_sha))
             data['hashes'][file_hash_sha].append(f_path)
         
         scan_file = True
@@ -195,13 +200,16 @@ for f in scanFiles(filepath):
                     # file has been scanned and has not changed by hash
                     logger.info('\tfile already scanned!')
                     scan_file = False
-                    break
+                    
                 else:
                     logging.info('\tFile is out of date, updating!')
                     if not 'archives' in data:
                         data['archives'] = []
                     data['archives'].append(s)
                     del data['files'][scan_idx]
+
+                # we found the file... so no need to search anymore
+                break
         
         if not scan_file:
             continue
@@ -215,6 +223,7 @@ for f in scanFiles(filepath):
         dwg_file['accessed'] = parse(f['accessed'])
         dwg_file['size'] = f['size']
         dwg_file['hash'] = file_hash
+        dwg_file['GUID'] = uuid.uuid4()
 
         data['files'].append(dwg_file)        
 
