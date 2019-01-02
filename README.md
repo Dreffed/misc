@@ -6,13 +6,13 @@ Miscellaneous files for various file operations
 
 set up the configuration files for each file...
 * __init__.py
-    * sets up the default logging for the modeule
+    * sets up the default logging for the module
 
 * visio_scan.py
     * uses 
         * logging_config.ini
         * visio_setting.json
-    * prodices
+    * produces
         * visio_data.pickle
     * imports
         * from getFiles import scanFiles, get_info, get_pickle_data, save_pickle_data, make_hash
