@@ -48,6 +48,74 @@ https://docs.python-guide.org/writing/logging/
 
 * structure of the viso_data.pickle file
 ---
+{
+	"folders": ["<<str>>","<<...>>"],
+	"filter": ".<<file ext>>",
+	"hashes": {
+		"<<file sha1 hash>>": ["<<normalized file path>>","<<...>>"]
+	},
+	"archive": [{<<file obj>>},{...}],
+	"files": [{<<file obj>>},{...}]
+}
+---
+
+File Object
+---
+{
+	"name": "<<name of the file>>",
+	"title": "<<doc info title>>",
+	"description": "<<doc info description>>",
+	"keywords": "<<doc info keywords>>",
+	"subject": "<<doc info subject>>",
+	"manager": "<<doc info manager>>",
+	"category": "<<doc info category of the file>>",
+	"pagecount": "<<the number of pages in the file>>",
+	"creator": "<<the name of the creator of the file>>",
+	"created": "<<the date the file was created>>",
+	"saved": "<<the save date of the file>>",
+	"pages": [{"<<page object>>"}],
+	"folder": "<<the folder the file is stored in>>",
+	"file": "<<the file name>>",
+	"modified": "<<OS date tge file was last modified>>",
+	"accessed": "<<OS date the file was last accessed>>",
+	"size": "<<fiel size in bytes>>",
+	"hash": {
+		"SHA1": "<<sha1 hash of the file>>",
+		"MD5": "<<md5 hash of the file>>"
+	}
+}
+---
+
+Page object
+---
+{
+	"name":	"<<the name of the page>>", 
+	"shape_count":	<<the number of shapes on the page>>,
+	"objects": {
+		"<<shape type>>":{
+			<<shape name>>: {<<shape object>>}
+		}
+	}
+}
+---
+
+Shape object
+---
+{
+	"id": <<shape id>>,
+	"name": "<<name>>",
+	"type": <<type constant>>,
+	"text": "<<body>>",
+	"name_type": "<<name prefix>>",
+	"subid": "<<name suffix>>",
+	"callouts": [<<shape ids>>, <<...>>],
+	"connected_shapes": [<<shape ids>>, <<...>>],
+	"connects": [<<shape ids>>, <<...>>],
+	"containing_shape": <<shape id>>,
+	"contained_shapes": [<<shape ids>>, <<...>>]
+}
+---
+
 * process
 	* folders
 		* the folder scanned as root
@@ -99,18 +167,3 @@ https://docs.python-guide.org/writing/logging/
 		* a dict of shapes index by the shape type
 		* <shape name>	
 			* dict of shapes, index by name
-
-* shape
-	* id
-	* name
-	* type
-	* text
-	* name_type
-	* subid
-	* callouts
-	* connected_shapes
-	* connects
-	* containing_shape
-	* contained_shapes
----
-

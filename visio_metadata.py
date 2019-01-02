@@ -2,6 +2,11 @@ from getFiles import scanFiles, get_info, get_pickle_data, save_pickle_data
 import sys
 import os
 import json
+import logging
+from logging.config import fileConfig
+
+fileConfig('logging_config.ini')
+logger = logging.getLogger(__name__)
 
 def summarize_data(data):
     '''This will scan the log file and produce stats in the data found'''
@@ -13,15 +18,12 @@ def summarize_data(data):
 
         for dwg_file in data['files']:
             file_name = dwg_file['file']
-            print(file_name)
+            logger.info('{}'.format(file_name))
             for dwg_page in dwg_file['pages']:
-                print('\t{}'.format(dwg_page['name']))
+                logger.info('{}'.format('\t{}'.format(dwg_page['name'])))
                 if 'objects' in dwg_page:
                     for objectype in dwg_page['objects']:
-                        print('\t\t{}:{}'.format(objectype, len(dwg_page['objects'][objectype])))
-                        #'Orthogonal', 'Process', 'Dynamic connector', 'Decision', 
-                        if objectype in ('Swimlane', 'Swinlane List', 'Sheet'):
-                            print(dwg_page['objects'][objectype])
+                        logger.info('{}'.format('\t\t{}:{}'.format(objectype, len(dwg_page['objects'][objectype]))))
 
     else:
         print('no files found in saved data! \n\tPath: {}'.format(data['folders']))
