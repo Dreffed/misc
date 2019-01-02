@@ -73,7 +73,7 @@ File Object
 	"creator": "<<the name of the creator of the file>>",
 	"created": "<<the date the file was created>>",
 	"saved": "<<the save date of the file>>",
-	"pages": [{"<<page object>>"}],
+	"pages": [{<<page object>>}],
 	"folder": "<<the folder the file is stored in>>",
 	"file": "<<the file name>>",
 	"modified": "<<OS date tge file was last modified>>",
