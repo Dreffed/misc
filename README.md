@@ -44,3 +44,73 @@ visio_setting.json
 for logging.ini template see
 https://docs.python-guide.org/writing/logging/
 
+## Pickle file object
+
+* structure of the viso_data.pickle file
+---
+* process
+	* folders
+		* the folder scanned as root
+	* filter
+		* the filter (file extension) to match
+	* files
+		* an array of files
+	* hashes
+		* a dict of files hashes
+
+* hash
+	* an array of filepath that have the same hash
+	* filepath
+		* the normalized filepath
+
+* file
+	* name
+	* title
+	* description
+	* keywords
+	* subject
+	* manager
+	* category
+	* pagecount
+	* creator
+	* created
+	* saved
+	* pages
+		* array of page objects
+	* folder
+	* file
+	* modified
+	* accessed
+	* size
+	* hash
+		* a dict of sha1 and md5 hashes for the current file, used to check changes
+
+* page
+
+	* name
+		*  	the name of the page 
+	* shape_count
+		* the number of shapes on the page
+	* objects
+		* a dict of object, index by <shape type>
+
+* object
+	* <shape type>	
+		* a dict of shapes index by the shape type
+		* <shape name>	
+			* dict of shapes, index by name
+
+* shape
+	* id
+	* name
+	* type
+	* text
+	* name_type
+	* subid
+	* callouts
+	* connected_shapes
+	* connects
+	* containing_shape
+	* contained_shapes
+---
+
