@@ -9,7 +9,7 @@ import logging
 from logging.config import fileConfig
 
 fileConfig('logging_config.ini')
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 def load_config(config_path):
     if os.path.exists(config_path):
@@ -186,13 +186,22 @@ for f in scanFiles(filepath):
             data['hashes'][file_hash_sha].append(f_path)
         
         scan_file = True
+        scan_idx = -1
         for s in data['files']:
+            scan_idx += 1
             s_path = os.path.normpath(os.path.join(s['folder'], s['file']))
-            if f_path == s_path and s['hash']['SHA1'] == file_hash_sha:
-                # file has been scanned and has not changed by hash
-                logger.info('\tfile already scanned!')
-                scan_file = False
-                break
+            if f_path == s_path:
+                if s['hash']['SHA1'] == file_hash_sha:
+                    # file has been scanned and has not changed by hash
+                    logger.info('\tfile already scanned!')
+                    scan_file = False
+                    break
+                else:
+                    logging.info('\tFile is out of date, updating!')
+                    if not 'archives' in data:
+                        data['archives'] = []
+                    data['archives'].append(s)
+                    del data['files'][scan_idx]
         
         if not scan_file:
             continue
