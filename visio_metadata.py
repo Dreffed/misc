@@ -4,6 +4,7 @@ import os
 import json
 import logging
 from logging.config import fileConfig
+import csv
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
@@ -62,8 +63,6 @@ def summarize_data(data):
                             # store
                             object_types[objectype].append(o_data)
 
-                        
-
     else:
         print('no files found in saved data! \n\tPath: {}'.format(data['folders']))
 
@@ -73,5 +72,24 @@ pickle_file = 'visio_data.pickle'
 data = get_pickle_data( pickle_file)
 object_types = summarize_data(data)
 
-for objectype in object_types:
-    logger.info('{}'.format('\t\t{}:{}'.format(objectype, len(object_types[objectype]))))
+logger.info('Found {} object types'.format(len(object_types)))
+shape_count = 0
+obj_model = {
+"fileGUID":None, "filename":None, "title":None, "creator":None, "pageGUID":None, "pagename":None, "objectype":None, "shapeGUID":None, "shapeID":None, "shapeName":None, "shapeType":None, "shapeText":None, "shapeCallouts":None, "shapeConnects":None, "shapeConnected":None, "shapeContain":None
+}
+keys = obj_model.keys()
+logger.info(keys)
+
+filename = 'shape.csv'
+with open(filename, 'w', encoding='utf-8-sig', newline='') as output_file:
+    dict_writer = csv.DictWriter(output_file, keys)
+    dict_writer.writeheader()
+
+    for objectype in object_types:
+        shape_count += len(object_types[objectype])
+        logger.info('{}'.format('\t\t{}:{}'.format(objectype, len(object_types[objectype]))))
+
+        dict_writer.writerows(object_types[objectype])
+
+logger.info('\tProcessed {} shapes'.format(shape_count))
+
