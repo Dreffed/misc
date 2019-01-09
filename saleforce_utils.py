@@ -74,7 +74,6 @@ for obj in s_objs:
     print('\t{}\t-> {}'.format(obj['label'], obj['name']))
     obj_list.append(obj['name'])
 
-
 for sf_name in obj_list:
     sf_obj = get_object(sf, sf_name)
     print(json.dumps(sf_obj, indent=4))
