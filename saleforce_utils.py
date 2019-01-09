@@ -90,10 +90,9 @@ for obj in s_objs:
 # now to store the metadata... 
 for sf_name in obj_list:
     obj_data = get_object(sf, sf_name)
-    logger.info(json.dumps(obj_data, indent=4))
+    logger.debug(json.dumps(obj_data, indent=4))
     
     data[instance]['objects'][sf_name] = obj_data
-    break
 
 save_pickle_data(data, pickle_file)
 
