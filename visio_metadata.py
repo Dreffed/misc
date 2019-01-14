@@ -8,8 +8,8 @@ import csv
 import uuid
 import node_models as nm
 from utils import load_settings, save_settings, read_file
-from neomodel import (config, StructuredRel, StructuredNode, StringProperty, IntegerProperty,
-    UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist)
+from neomodel import db, config, StructuredRel, StructuredNode, StringProperty, IntegerProperty, \
+    UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
@@ -18,6 +18,7 @@ neo_connect_file = "neo4j_settings.json"
 
 settings = load_settings(neo_connect_file)
 config.DATABASE_URL = settings['neo4j']['database_url']
+db.set_connection(settings['neo4j']['database_url'])
 
 def summarize_data(data):
     '''This will scan the log file and produce stats in the data found'''
@@ -25,6 +26,8 @@ def summarize_data(data):
         return None
     
     object_types = {}
+    relationbships = {}
+
     file_index = 1000
     if 'files' in data:
         print('Files scanned{}'.format(len(data['files'])))
@@ -38,6 +41,11 @@ def summarize_data(data):
             file_title = dwg_file['title']
             file_creator = dwg_file['creator']
             file_folder = dwg_file['folder']
+            file_wbs = '{}'.format(file_index)
+
+            if not file_wbs in relationbships:
+                relationbships[file_wbs] = {}
+            
 
             logger.info('{}'.format(file_name))
 
@@ -45,7 +53,7 @@ def summarize_data(data):
             try:
                 file_node = nm.FileNode.nodes.get(id=file_guid)
             except DoesNotExist as e:
-                file_node = nm.FileNode(id=file_guid, local_id=file_index, name=file_name, path=file_folder).save()
+                file_node = nm.FileNode(id=file_guid, name=file_name, path=file_folder, wbs=file_wbs).save()
 
             page_index = 1000
 
@@ -57,11 +65,12 @@ def summarize_data(data):
                 page_guid = str(dwg_page['GUID'])
                 page_name = dwg_page['name']
                 page_index += 1
+                page_wbs = '{}.{}'.format(file_wbs, page_index)
 
                 try:
                     page_node = nm.PageNode.nodes.get(id=page_guid)
                 except DoesNotExist as e:
-                    page_node = nm.PageNode(id=page_guid, local_id=page_index, name=page_name)
+                    page_node = nm.PageNode(id=page_guid, name=page_name, wbs=page_wbs).save()
 
                 try:
                     file_node.contains.connect(page_node)
@@ -76,6 +85,9 @@ def summarize_data(data):
                         for s in dwg_page['objects'][objectype]:   
                             s_data = dwg_page['objects'][objectype][s]
                             o_data = {}
+
+                            obj_wbs = '{}.{}'.format(page_wbs, s_data['id'])
+                            print('{1}:{2}\t{0}'.format(obj_wbs, s_data['type'], objectype))
 
                             # file data
                             o_data['fileGUID'] = file_guid
