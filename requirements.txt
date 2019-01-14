@@ -1,0 +1,17 @@
+azure-common==1.1.14
+azure-datalake-store==0.0.29
+azure-mgmt-datalake-nspkg==2.0.0
+azure-mgmt-datalake-store==0.5.0
+azure-mgmt-nspkg==2.0.0
+azure-mgmt-resource==2.0.0
+azure-nspkg==2.0.0
+neo4j-driver==1.6.1
+neomodel==3.2.9
+neotime==1.0.0
+openpyxl==2.5.4
+pypiwin32==219
+python-dateutil==2.7.3
+pywin32==223
+pywinauto==0.6.0
+pywinpty==0.5.4
+simple-salesforce==0.73.0
