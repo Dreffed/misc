@@ -6,9 +6,18 @@ import logging
 from logging.config import fileConfig
 import csv
 import uuid
+import node_models as nm
+from utils import load_settings, save_settings, read_file
+from neomodel import (config, StructuredRel, StructuredNode, StringProperty, IntegerProperty,
+    UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist)
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
+
+neo_connect_file = "neo4j_settings.json"
+
+settings = load_settings(neo_connect_file)
+config.DATABASE_URL = settings['neo4j']['database_url']
 
 def summarize_data(data):
     '''This will scan the log file and produce stats in the data found'''
@@ -16,16 +25,49 @@ def summarize_data(data):
         return None
     
     object_types = {}
-
+    file_index = 1000
     if 'files' in data:
         print('Files scanned{}'.format(len(data['files'])))
 
         for dwg_file in data['files']:
             file_name = dwg_file['file']
+            if not 'GUID' in dwg_file:
+                dwg_file['GUID'] = uuid.uuid4()            
+            file_guid = str(dwg_file['GUID'])
+            file_name = dwg_file['name']
+            file_title = dwg_file['title']
+            file_creator = dwg_file['creator']
+            file_folder = dwg_file['folder']
+
             logger.info('{}'.format(file_name))
+
+            file_index += 1
+            try:
+                file_node = nm.FileNode.nodes.get(id=file_guid)
+            except DoesNotExist as e:
+                file_node = nm.FileNode(id=file_guid, local_id=file_index, name=file_name, path=file_folder).save()
+
+            page_index = 1000
 
             for dwg_page in dwg_file['pages']:
                 logger.info('{}'.format('\t{}'.format(dwg_page['name'])))
+
+                if not 'GUID' in dwg_page:
+                    dwg_page['GUID'] = uuid.uuid4()
+                page_guid = str(dwg_page['GUID'])
+                page_name = dwg_page['name']
+                page_index += 1
+
+                try:
+                    page_node = nm.PageNode.nodes.get(id=page_guid)
+                except DoesNotExist as e:
+                    page_node = nm.PageNode(id=page_guid, local_id=page_index, name=page_name)
+
+                try:
+                    file_node.contains.connect(page_node)
+                except Exception as e:
+                    print('ERROR: \n\t{}\n\t{}\n===\t{}'.format(file_node, page_node, e))
+
                 if 'objects' in dwg_page:
                     for objectype in dwg_page['objects']:
                         if not objectype in object_types:
@@ -36,20 +78,14 @@ def summarize_data(data):
                             o_data = {}
 
                             # file data
-                            if not 'GUID' in dwg_file:
-                                dwg_file['GUID'] = uuid.uuid4()
-
-                            o_data['fileGUID'] = dwg_file['GUID']
-                            o_data['filename'] = dwg_file['name']
-                            o_data['title'] = dwg_file['title']
-                            o_data['creator'] = dwg_file['creator']
+                            o_data['fileGUID'] = file_guid
+                            o_data['filename'] = file_name
+                            o_data['title'] = file_title
+                            o_data['creator'] = file_creator
                             
-                            # page data
-                            if not 'GUID' in dwg_page:
-                                dwg_page['GUID'] = uuid.uuid4()
-                                
-                            o_data['pageGUID'] = dwg_page['GUID']
-                            o_data['pagename'] = dwg_page['name']
+                            # page data                                
+                            o_data['pageGUID'] = page_guid
+                            o_data['pagename'] = page_name
 
                             #shape_data
                             o_data['objectype'] = objectype
