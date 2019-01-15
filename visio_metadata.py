@@ -88,6 +88,8 @@ def summarize_data(data):
                     pool = {}
                     swimlanes = {}
                     process_nodes = {}
+                    dyn_connector = {}
+                    callouts = {}
 
                     process_type = 'CFF Container'
                     if process_type in dwg_page['objects']:
@@ -116,6 +118,41 @@ def summarize_data(data):
 
                             swimlanes[obj_wbs] = {}
                             swimlanes[obj_wbs]['processes'] = processes
+
+                    process_type = "Dynamic connector"
+                    if process_type in dwg_page['objects']:
+                        for s in dwg_page['objects'][process_type]:
+                            s_data = dwg_page['objects'][process_type][s]
+                            obj_wbs = '{}.{}'.format(page_wbs, s_data['id'])
+
+                            o_data = {}
+                            o_data['shapeGUID'] = s_data['GUID']
+                            o_data['shapeText'] = s_data['Text']
+
+                            if 'connected_shapes' in s_data:
+                                for cell in s_data['connected_shapes']:
+                                   o_data[cell['type']] = cell['id'] 
+
+                            if not obj_wbs in dyn_connector:
+                                dyn_connector[obj_wbs] = o_data
+
+                    process_type = "Orthogonal"
+                    if process_type in dwg_page['objects']:
+                        for s in dwg_page['objects'][process_type]:
+                            s_data = dwg_page['objects'][process_type][s]
+                            obj_wbs = '{}.{}'.format(page_wbs, s_data['id'])
+
+                            o_data = {}
+                            o_data['shapeGUID'] = s_data['GUID']
+                            o_data['shapeText'] = s_data['Text']
+
+                            if 'connected_shapes' in s_data:
+                                for cell in s_data['connected_shapes']:
+                                   o_data[cell['type']] = cell['id'] 
+
+                            if not obj_wbs in dyn_connector:
+                                dyn_connector[obj_wbs] = o_data
+
 
                     for objectype in dwg_page['objects']:
                         obj = {}
@@ -162,7 +199,7 @@ def summarize_data(data):
                             # store
                             object_types[objectype].append(o_data)
 
-                            print('{1}:{2}\t{0}\t{3}'.format(obj_wbs, s_data['type'], objectype, o_data['shapeContain']))
+                            #print('{1}:{2}\t{0}\t{3}'.format(obj_wbs, s_data['type'], objectype, o_data['shapeContain']))
                     
                     # update the swimlanes with the found swimlanes
                     for pool_id in pool:
