@@ -5,6 +5,7 @@ from datetime import datetime
 import logging
 from logging.config import fileConfig
 from getFiles import get_pickle_data, save_pickle_data
+from utils import read_file, export_csv
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
@@ -75,24 +76,40 @@ s_objs = all_describe['sobjects']
 
 # save the runtime details
 obj_list = []
+rows = []
 
 if not 'objects' in data[instance]:
     data[instance]['objects'] = {}
+print(json.dumps(s_objs[0], indent = 4))
 
 # scan the objects and save to a list...
 for obj in s_objs:
+    row = {}
+    row['name'] = obj['name']
+    row['label'] = obj['label']
+    row['custom'] = obj['custom']
+    row['activateable'] = obj['activateable']
+    row['keyPrefix'] = obj['keyPrefix']
+    row['labelPlural'] = obj['labelPlural']
+    rows.append(row)
+
     #logger.debug(obj)
     logger.info('\t{}\t-> {}'.format(obj['label'], obj['name']))
     obj_list.append(obj['name'])
     if not obj['name'] in data[instance]['objects']:
         data[instance]['objects'][obj['name']] = {}
 
+
+'''
 # now to store the metadata... 
 for sf_name in obj_list:
     obj_data = get_object(sf, sf_name)
     logger.debug(json.dumps(obj_data, indent=4))
     
     data[instance]['objects'][sf_name] = obj_data
-
+'''
+export_csv(rows, 'salesforce.tables.csv')
 save_pickle_data(data, pickle_file)
+
+
 
