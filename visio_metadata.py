@@ -7,7 +7,7 @@ from logging.config import fileConfig
 import csv
 import uuid
 import node_models as nm
-from utils import load_settings, save_settings, read_file
+from utils import load_settings, save_settings, read_file, export_csv
 from neomodel import db, config, StructuredRel, StructuredNode, StringProperty, IntegerProperty, \
     UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist
 
@@ -219,25 +219,6 @@ def summarize_data(data):
 
     print('{}'.format(json.dumps(relationships, indent=4)))   
     return object_types
-
-def export_csv(fields, data):
-    shape_count = 0
-
-    keys = fields.keys()
-    logger.info(keys)
-
-    filename = 'shape.csv'
-    with open(filename, 'w', encoding='utf-8-sig', newline='') as output_file:
-        dict_writer = csv.DictWriter(output_file, keys)
-        dict_writer.writeheader()
-
-        for objectype in data:
-            shape_count += len(data[objectype])
-            logger.info('{}'.format('\t\t{}:{}'.format(objectype, len(data[objectype]))))
-
-            dict_writer.writerows(data[objectype])
-
-    logger.info('\tProcessed {} shapes'.format(shape_count))
 
 pickle_file = 'visio_data.pickle'
 data = get_pickle_data( pickle_file)
