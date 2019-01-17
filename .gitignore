@@ -4,3 +4,4 @@
 *.ini
 *.csv
 *.log
+__pycache__/*.*
