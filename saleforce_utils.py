@@ -86,13 +86,13 @@ for obj in s_objs:
     obj_list.append(obj['name'])
     if not obj['name'] in data[instance]['objects']:
         data[instance]['objects'][obj['name']] = {}
-
+'''
 # now to store the metadata... 
 for sf_name in obj_list:
     obj_data = get_object(sf, sf_name)
     logger.debug(json.dumps(obj_data, indent=4))
     
     data[instance]['objects'][sf_name] = obj_data
-
+'''
 save_pickle_data(data, pickle_file)
 
