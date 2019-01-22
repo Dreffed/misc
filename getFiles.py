@@ -4,6 +4,7 @@ import stat
 import time
 import pickle
 import hashlib
+import json
 
 def get_pickle_data(pickleName):
     data = {}
@@ -164,12 +165,22 @@ def scan_folders(folder, root_name):
     print('Found {} unique hashes, {} duplicates'.format(len(file_hashes), duplicates))
 
 if __name__ == '__main__':
-    folders = [
-        {
-            'root_name': 'TB_1', 
-            'folder':'/'
-        }
-    ]
+    config_path = 'getfiles_settings.json'
+    folder_cnf_data = {}
+
+    if os.path.exists(config_path):
+        folder_cnf_data = json.load(open(config_path))
+
+    else:
+        folder_cnf_data['folders'] = [
+            {
+                'root_name': 'root', 
+                'folder':'/'
+            }
+        ]
+        with open(config_path, 'w') as outfile:
+            json.dump(folder_cnf_data, outfile)
+    folders = folder_cnf_data['folders']
 
     for item in folders:
         print('Scanning...\n\t{} -> {}'.format(item['root_name'], item['folder']))

@@ -5,6 +5,7 @@ from datetime import datetime
 import logging
 from logging.config import fileConfig
 from getFiles import get_pickle_data, save_pickle_data
+from utils import read_file, export_csv
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
@@ -60,6 +61,96 @@ def get_object(sf, obj_name):
         
     return result
 
+def get_metadata(sf):
+    """This will get the object list from SF"""
+    data = {}
+    all_describe = sf.describe()
+
+    s_objs = all_describe['sobjects']
+    # scan the objects and save to a list...
+    for obj in s_objs:
+        row = {}
+        row['name'] = obj['name']
+        row['label'] = obj['label']
+        row['custom'] = obj['custom']
+        row['activateable'] = obj['activateable']
+        row['keyPrefix'] = obj['keyPrefix']
+        row['labelPlural'] = obj['labelPlural']
+
+        row['raw'] = obj
+
+        logger.info('\t{}\t-> {}'.format(obj['label'], obj['name']))
+        data[row['name']] = row
+
+    return data
+
+def get_object_metadata(sf, name):
+    """This will return the metadata for the selected objects.
+    This will simplify the metadata to useful fields only"""
+    data = {}
+        
+    result = get_object(sf, name)
+
+    # now split out the result
+    data['raw'] = result
+    describe = result['describe']
+    relationships = []
+    for entry in describe['childRelationships']:
+        row = {}
+        row['table'] = entry['childSObject']
+        row['field'] = entry['field']
+        row['name'] = entry['relationshipName']
+
+        relationships.append(row)
+    data['relationships'] = relationships
+
+    fields = []
+    for entry in describe['fields']:
+        row = {}
+        row['name'] = entry['name']
+        row['label'] = entry['label']
+        row['type'] = entry['type']
+        row['length'] = entry['length']
+        row['byteLength'] = entry['byteLength']
+        row['custom'] = entry['custom']
+        row['scale'] = entry['scale']
+        row['precision'] = entry['precision']
+        row['calculated'] = entry['calculated']
+        row['calculatedFormula'] = entry['calculatedFormula']
+        row['soapType'] = entry['soapType']
+        row['picklist'] = entry['picklistValues']
+        if len(row['picklist']) > 0:
+            p_rows = []
+            for p in row['picklist']:
+                p_row = {}
+                p_row['active'] = p['active']
+                p_row['defaultValue'] = p['defaultValue']
+                p_row['label'] = p['label']
+                p_row['validFor'] = p['validFor']
+                p_row['value'] = p['value']
+
+                p_rows.append(row)
+
+        fields.append(row)
+    
+    data['fields'] = fields
+
+    # get the record types
+    rt_rows = []
+    for rt in describe['recordTypeInfos']:
+        rt_row = {}
+        rt_row['available'] = rt['available']
+        rt_row['default'] = rt['defaultRecordTypeMapping']
+        rt_row['master'] = rt['master']
+        rt_row['name'] = rt['name']
+        rt_row['recordTypeId'] = rt['recordTypeId']
+
+        rt_rows.append(rt_row)
+
+    data['record_type'] = rt_rows
+
+    return data
+
 config_path = r'sf.secrets.json'
 instance = 'KaptioStaging'
 config_data = get_config(config_path, instance)
@@ -70,29 +161,20 @@ if not instance in data:
     data[instance] = {}
 
 sf = connect_sf(config_data)
-all_describe = sf.describe()
-s_objs = all_describe['sobjects']
 
 # save the runtime details
-obj_list = []
+data[instance] = get_metadata(sf)
 
-if not 'objects' in data[instance]:
-    data[instance]['objects'] = {}
+for obj_name in data[instance]:
+    row = data[instance][obj_name]
+    result = get_object_metadata(sf, row['name'])
 
-# scan the objects and save to a list...
-for obj in s_objs:
-    #logger.debug(obj)
-    logger.info('\t{}\t-> {}'.format(obj['label'], obj['name']))
-    obj_list.append(obj['name'])
-    if not obj['name'] in data[instance]['objects']:
-        data[instance]['objects'][obj['name']] = {}
-'''
-# now to store the metadata... 
-for sf_name in obj_list:
-    obj_data = get_object(sf, sf_name)
-    logger.debug(json.dumps(obj_data, indent=4))
-    
-    data[instance]['objects'][sf_name] = obj_data
-'''
+    data[instance][obj_name] = {**row, **result, 'scanned_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
 save_pickle_data(data, pickle_file)
+    
+print(json.dumps(data, indent=4))
+
+
+
 

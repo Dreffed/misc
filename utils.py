@@ -1,6 +1,11 @@
-from json import load, dump
+from json import load, dump, dumps
 from os import path
 import csv
+import logging
+from logging.config import fileConfig
+
+fileConfig('logging_config.ini')
+logger = logging.getLogger(__name__)
 
 def load_settings(file_name=r"settings.json"):
     if not path.exists(file_name):
@@ -35,3 +40,17 @@ def read_file(file_name):
             yield row
 
     print(line_count)
+
+def export_csv(data, filename = 'export.csv', fields = None):
+    if fields is None:
+        keys = data[0].keys()        
+    else:
+        keys = fields.keys()
+
+    logger.info(keys)
+
+    with open(filename, 'w', encoding='utf-8-sig', newline='') as output_file:
+        dict_writer = csv.DictWriter(output_file, keys)
+        dict_writer.writeheader()
+
+        dict_writer.writerows(data)
