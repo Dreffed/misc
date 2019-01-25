@@ -172,7 +172,11 @@ for obj_name in data[instance]:
     data[instance][obj_name] = {**row, **result, 'scanned_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 save_pickle_data(data, pickle_file)
-    
+file_name = "SF_Schema{}{}.json".format(instance,datetime.now().strftime("%Y-%m-%d-%H-%M"))
+
+with open(file_name, "w") as file: 
+    file.write(json.dumps(data, indent = 4)) 
+
 print(json.dumps(data, indent=4))
 
 
