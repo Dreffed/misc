@@ -4,7 +4,7 @@ import os
 import sys
 
 def read_accounts(outlook):
-    accounts= win32com.client.Dispatch("Outlook.Application").Session.Accounts;
+    accounts= win32com.client.Dispatch("Outlook.Application").Session.Accounts
     for account in accounts:
         print(account.DisplayName)
         inbox = outlook.Folders(account.DeliveryStore.Displayname)
