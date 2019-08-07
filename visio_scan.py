@@ -127,8 +127,9 @@ def process_visiofile(filepath):
                         shape_data = process_shape(shape)
                         shape_type = shape_data['name_type']
                         
-                        if not shape_type in page_data['objects']:
+                        if not shape_type in page_data.get('objects', {}):
                             page_data['objects'][shape_type] = {}
+
                         page_data['objects'][shape_type][shape.Name] = shape_data
 
                     except Exception as ex:
@@ -183,6 +184,9 @@ for f in scanFiles(filepath):
         file_hash = make_hash(f_path)
         file_hash_sha = file_hash['SHA1']
 
+        if not data.get('hashes'):
+            data['hashes'] = {}
+
         if not file_hash_sha in data['hashes']:
             data['hashes'][file_hash_sha] = []
 
@@ -217,14 +221,18 @@ for f in scanFiles(filepath):
         dwg_file = process_visiofile(f_path)
 
         # add the file details...
-        dwg_file['folder'] = f['folder']
-        dwg_file['file'] = f['file']
-        dwg_file['modified'] = parse(f['modified'])
-        dwg_file['accessed'] = parse(f['accessed'])
-        dwg_file['size'] = f['size']
-        dwg_file['hash'] = file_hash
-        dwg_file['GUID'] = uuid.uuid4()
-
-        data['files'].append(dwg_file)        
+        try:
+            dwg_file['folder'] = f['folder']
+            dwg_file['file'] = f['file']
+            dwg_file['modified'] = parse(f['modified'])
+            dwg_file['accessed'] = parse(f['accessed'])
+            dwg_file['size'] = f['size']
+            dwg_file['hash'] = file_hash
+            dwg_file['GUID'] = uuid.uuid4()
+        except Exception as ex:
+            dwg_file['error'] = ex
+            logger.error(ex)
+        finally:
+            data['files'].append(dwg_file)        
 
 save_pickle_data(data, pickle_file)

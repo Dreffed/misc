@@ -25,6 +25,8 @@ def summarize_data(data):
     if not isinstance(data, dict):
         return None
     
+    idx = 0
+
     object_types = {}
     relationships = {}
 
@@ -33,14 +35,16 @@ def summarize_data(data):
         print('Files scanned{}'.format(len(data['files'])))
 
         for dwg_file in data['files']:
+            idx += 1
             file_name = dwg_file['file']
             if not 'GUID' in dwg_file:
-                dwg_file['GUID'] = uuid.uuid4()            
+                dwg_file['GUID'] = uuid.uuid4()
+
             file_guid = str(dwg_file['GUID'])
-            file_name = dwg_file['name']
-            file_title = dwg_file['title']
-            file_creator = dwg_file['creator']
-            file_folder = dwg_file['folder']
+            file_name = dwg_file.get('name','M-{}'.format(idx))
+            file_title = dwg_file.get('title')
+            file_creator = dwg_file.get('creator')
+            file_folder = dwg_file.get('folder')
             file_wbs = '{}'.format(file_index)
 
             if not file_wbs in relationships:
@@ -62,7 +66,7 @@ def summarize_data(data):
 
             page_index = 1000
 
-            for dwg_page in dwg_file['pages']:
+            for dwg_page in dwg_file.get('pages',[]):
                 page_data = {}
 
                 logger.info('{}'.format('\t{}'.format(dwg_page['name'])))
