@@ -1,5 +1,4 @@
 from getFiles import scanFiles, get_info, get_pickle_data, save_pickle_data
-import sys
 import os
 import json
 import logging
