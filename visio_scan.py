@@ -126,8 +126,9 @@ def process_visiofile(filepath):
                         shape_data = process_shape(shape)
                         shape_type = shape_data['name_type']
                         
-                        if not shape_type in page_data['objects']:
+                        if not shape_type in page_data.get('objects', {}):
                             page_data['objects'][shape_type] = {}
+
                         page_data['objects'][shape_type][shape.Name] = shape_data
 
                     except Exception as ex:

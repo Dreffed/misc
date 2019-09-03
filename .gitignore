@@ -4,5 +4,7 @@
 *.ini
 *.csv
 *.log
-__pycache__/*
+__pycache__/*.*
 *.pyc
+*.txt
+tempCodeRunnerFile.py
