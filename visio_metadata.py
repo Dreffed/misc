@@ -58,7 +58,7 @@ def summarize_data(data):
             file_index += 1
             try:
                 file_node = nm.FileNode.nodes.get(id=file_guid)
-            except DoesNotExist as e:
+            except DoesNotExist:
                 file_node = nm.FileNode(id=file_guid, name=file_name, path=file_folder, wbs=file_wbs).save()
 
             relationships[file_wbs]['guid'] = file_guid
@@ -84,7 +84,7 @@ def summarize_data(data):
 
                 try:
                     page_node = nm.PageNode.nodes.get(id=page_guid)
-                except DoesNotExist as e:
+                except DoesNotExist:
                     page_node = nm.PageNode(id=page_guid, name=page_name, wbs=page_wbs).save()
                     
                 if 'objects' in dwg_page:

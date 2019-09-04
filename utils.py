@@ -1,4 +1,5 @@
 from json import load, dump, dumps
+import pickle
 from os import path
 import csv
 import logging
@@ -6,6 +7,19 @@ from logging.config import fileConfig
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
+
+def load_pickle(pickleName):
+    data = {}
+    if os.path.exists(pickleName):
+        logger.info('Loading Saved Data... [%s]' % pickleName)
+        with open(pickleName, 'rb') as handle:
+            data = pickle.load(handle)
+    return data
+
+def save_pickle(data, pickleName):
+    logger.info('Saving Data... [%s]' % pickleName)
+    with open(pickleName, 'wb') as handle:
+        pickle.dump(data, handle)
 
 def load_settings(file_name=r"settings.json"):
     if not path.exists(file_name):
