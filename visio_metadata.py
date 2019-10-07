@@ -6,7 +6,7 @@ from logging.config import fileConfig
 import csv
 import uuid
 import node_models as nm
-from utils import load_settings, save_settings, read_file, export_csv
+from utils import load_json, save_json, read_file, export_csv
 from neomodel import db, config, StructuredRel, StructuredNode, StringProperty, IntegerProperty, \
     UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 neo_connect_file = "neo4j_settings.json"
 
-settings = load_settings(neo_connect_file)
+settings = load_json(neo_connect_file)
 config.DATABASE_URL = settings['neo4j']['database_url']
 db.set_connection(settings['neo4j']['database_url'])
 

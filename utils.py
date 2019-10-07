@@ -1,6 +1,6 @@
 from json import load, dump, dumps
 import pickle
-from os import path
+import os
 import csv
 import logging
 from logging.config import fileConfig
@@ -21,26 +21,18 @@ def save_pickle(data, pickleName):
     with open(pickleName, 'wb') as handle:
         pickle.dump(data, handle)
 
-def load_settings(file_name=r"settings.json"):
-    if not path.exists(file_name):
-        settings = {
-            'neo4j': {
-                'database_url':r'bolt://neo4j:test@localhost:7687'
-            }
-        }
-
-        save_settings(settings, file_name)
-        return settings
-        
+def load_json(file_name=r"settings.json"):
     # Load credentials from json file
-    with open(file_name, "r") as file:  
-        settings = load(file)
-    return settings
+    data = None
+    if os.path.exists(file_name):
+        with open(file_name, "r") as file:  
+            data = load(file)
+    return data
 
-def save_settings(settings = {}, file_name=r"settings.json"):
+def save_json(data = {}, file_name=r"settings.json"):
     # Save the credentials object to file
     with open(file_name, "w") as file:  
-        dump(settings, file)    
+        dump(data, file)    
 
 def read_file(file_name):
     if not path.exists(file_name):

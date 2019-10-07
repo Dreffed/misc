@@ -163,6 +163,7 @@ def scan_folders(folder, root_name):
         save_pickle_data(data, picklename)
 
     print('Found {} unique hashes, {} duplicates'.format(len(file_hashes), duplicates))
+    return data
 
 if __name__ == '__main__':
     config_path = 'getfiles_settings.json'
