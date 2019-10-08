@@ -1,6 +1,7 @@
 from atlassian import Jira
 import re
-from utils import load_json, save_json, load_pickle, save_pickle
+from utils import load_json, save_json, load_pickle, save_pickle, export_csv
+from nltk.tokenize import sent_tokenize
 import logging
 from logging.config import fileConfig
 
@@ -77,12 +78,50 @@ def process_issue(item):
     data['status'] = item.get('fields', {}).get('project', {}).get('status')
     return data
 
+def parse_clause(sentences):
+    data = {}
+    data['pre'] = []
+    data['condition'] = []
+    data['result'] = []
+    data['notes'] = []
+    data['freq'] = []
+    state = 'pre'
+
+    for s in sentences:
+        re_title = re.compile('h[\d]{0,1}\.')
+        if '*IF*' in s:
+            state = 'condition'
+
+        if '*THEN*' in s:
+            state = 'result'
+
+        if re_title.search(s):
+            continue
+
+        if 'Triggering Condition' in s:
+            state = 'condition'
+            continue
+
+        if 'Business Implication' in s:
+            state = 'notes'
+            continue
+
+        if 'Frequency' in s:
+            state = 'freq'
+            continue
+
+        data[state].append(s)
+
+    return data
+
 def extract_event(description):
-    regstr = r"[\n]{0,2}(h[\d]{0,1}. )?([a-zA-Z0-9 ]+)\n\n"
-    m = re.findall(regstr, description, re.MULTILINE)
-    if m:
-        print(m)
-    return m
+    data = []
+    # replace the newlines...
+    phrases =  [p for p in description.split('\n') if p]
+    for p in phrases:
+        for s in sent_tokenize(p):
+            data.append(s)
+    return data
 
 def main():
     pickle_name = 'jira.pickle'
@@ -112,11 +151,35 @@ def main():
     save_pickle(data=data, pickleName=pickle_name)
 
     # process the description text for information
+    events = {}
     for item in data.get('issues', []):
         descr = item.get('description')
         if descr:
-            print(item.get('key'))
-            m = extract_event(descr)
+            sentences = extract_event(descr)
+            event = parse_clause(sentences)
+            if len(event.get('condition'))>0:
+                for k in ['name','summary', 'type', 'subtask', 'project', 'project key', 'status']:
+                    event[k] = item.get(k)
+
+                events[item.get('key')] = event
+
+    data['events'] = events
+
+    rows = []
+    for k,v in events.items():
+        row = {}
+        row['key'] = k
+
+        for t, c in v.items():
+            if isinstance(c, list):
+                row[t] = '\n'.join(c)
+            else:
+                row[t] = c
+
+        rows.append(row)
+
+    export_csv(data=rows, filename='of_events.csv')
+    logger.info('Exported {} evetns'.format(len(rows)))
 
 if __name__ == "__main__":
     main()
