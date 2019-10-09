@@ -8,17 +8,17 @@ from logging.config import fileConfig
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
 
-def load_pickle(pickleName):
+def load_pickle(picklename):
     data = {}
-    if os.path.exists(pickleName):
-        logger.info('Loading Saved Data... [%s]' % pickleName)
-        with open(pickleName, 'rb') as handle:
+    if os.path.exists(picklename):
+        logger.info('Loading Saved Data... [%s]' % picklename)
+        with open(picklename, 'rb') as handle:
             data = pickle.load(handle)
     return data
 
-def save_pickle(data, pickleName):
-    logger.info('Saving Data... [%s]' % pickleName)
-    with open(pickleName, 'wb') as handle:
+def save_pickle(data, picklename):
+    logger.info('Saving Data... [%s]' % picklename)
+    with open(picklename, 'wb') as handle:
         pickle.dump(data, handle)
 
 def load_json(file_name=r"settings.json"):
@@ -35,7 +35,7 @@ def save_json(data = {}, file_name=r"settings.json"):
         dump(data, file)    
 
 def read_file(file_name):
-    if not path.exists(file_name):
+    if not os.path.exists(file_name):
          print('File does not exist: {}'.format(file_name))
          return None
     with open(file_name) as csv_file:

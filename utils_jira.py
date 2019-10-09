@@ -125,7 +125,7 @@ def extract_event(description):
 
 def main():
     pickle_name = 'jira.pickle'
-    data = load_pickle(pickleName=pickle_name)
+    data = load_pickle(picklename=pickle_name)
 
     if not 'jql' in data:
         jql = 'project = "OF" AND text ~ "events" ORDER BY created DESC'
@@ -148,7 +148,7 @@ def main():
         save_json(data=data['issues'], file_name='jira_tickets.json')
     
     logger.info("Processed {} tickets".format(len(data['issues'])))
-    save_pickle(data=data, pickleName=pickle_name)
+    save_pickle(data=data, picklename=pickle_name)
 
     # process the description text for information
     events = {}

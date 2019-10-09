@@ -5,19 +5,7 @@ import time
 import pickle
 import hashlib
 import json
-
-def get_pickle_data(pickleName):
-    data = {}
-    if os.path.exists(pickleName):
-        print('Loading Saved Data... [%s]' % pickleName)
-        with open(pickleName, 'rb') as handle:
-            data = pickle.load(handle)
-    return data
-
-def save_pickle_data(data, pickleName):
-    print('Saving Data... [%s]' % pickleName)
-    with open(pickleName, 'wb') as handle:
-        pickle.dump(data, handle)
+from utils import load_pickle, save_pickle
         
 def get_info(filepath):
     time_format = "%Y-%m-%d %H:%M:%S"
@@ -90,7 +78,7 @@ def make_hash(file_path):
 def scan_folders(folder, root_name):
     data = {}
     picklename = '{}.pickle'.format(root_name)
-    data = get_pickle_data(picklename)
+    data = load_pickle(picklename=picklename)
 
     file_list = []
     if 'files' in data:
@@ -100,7 +88,7 @@ def scan_folders(folder, root_name):
             file_list.append(file_item)
 
         data['files'] = file_list    
-        save_pickle_data(data, picklename)
+        save_pickle(data=data, picklename=picklename)
 
     print('Found {} files'.format(len(data['files'])))
 
@@ -120,7 +108,7 @@ def scan_folders(folder, root_name):
             file_details[file_name]['files'].append(file_item)
 
         data['biblo'] = file_details
-        save_pickle_data(data, picklename)
+        save_pickle(data=data, picklename=picklename)
 
     print('Found {} unique files.'.format(len(file_details)))
 
@@ -160,7 +148,7 @@ def scan_folders(folder, root_name):
                 file_hashes[sha_hash].append(f)
 
         data['file_hashes'] = file_hashes
-        save_pickle_data(data, picklename)
+        save_pickle(data=data, picklename=picklename)
 
     print('Found {} unique hashes, {} duplicates'.format(len(file_hashes), duplicates))
     return data
@@ -181,8 +169,11 @@ if __name__ == '__main__':
         ]
         with open(config_path, 'w') as outfile:
             json.dump(folder_cnf_data, outfile)
-    folders = folder_cnf_data['folders']
+    folders = folder_cnf_data.get('folders')
 
+    data = {}
+    data = load_pickle(picklename=folder_cnf_data.get('picklename'))
     for item in folders:
-        print('Scanning...\n\t{} -> {}'.format(item['root_name'], item['folder']))
-        scan_folders(item['folder'], item['root_name'])
+        print('Scanning...\n\t{} -> {}'.format(item.get('root_name'), item.get('folder')))
+        data[item.get('root_name')]= scan_folders(item.get('folder'), item.get('root_name'))
+    save_pickle(data=data, picklename=folder_cnf_data.get('picklename'))

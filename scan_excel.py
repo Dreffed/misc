@@ -39,7 +39,7 @@ folderpath = os.path.join(homepath, *filepaths)
 filepath = os.path.join(folderpath, filename)
 data = process_workbook(filepath)
 picklename = 'Analysis_{}.pickle'.format(filename)
-save_pickle(data=data, pickleName=picklename)
+save_pickle(data=data, picklename=picklename)
 
 all_sell__config = {
     "data":{
