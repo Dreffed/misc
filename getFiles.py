@@ -5,8 +5,13 @@ import time
 import pickle
 import hashlib
 import json
+from datetime import datetime
 from utils import load_pickle, save_pickle
-        
+import logging
+from logging.config import fileConfig
+fileConfig('logging_config.ini')
+logger = logging.getLogger(__name__)
+
 def get_info(filepath):
     time_format = "%Y-%m-%d %H:%M:%S"
     try:
@@ -26,13 +31,14 @@ def scanFiles(folder):
     for dirpath, _, filenames in os.walk(folder):
         for filename in filenames:
             filepath = os.path.join(dirpath,filename)
-
+            _, ext = os.path.splitext(filename)
             try:
                 mTime, aTime, fSize = get_info(filepath)
                 # save the format
                 data = {
                     "folder" : dirpath, 
                     "file" : filename, 
+                    "ext": ext,
                     "modified" : mTime, 
                     "accessed" : aTime, 
                     "size" : fSize
@@ -40,7 +46,7 @@ def scanFiles(folder):
                 yield data
 
             except Exception as e:
-                print("Error: scanning file stats - {}".format(e))
+                logger.error("Error: scanning file stats - {}".format(e))
 
 def make_hash(file_path):
     hashes = {}
@@ -53,7 +59,7 @@ def make_hash(file_path):
     sha1 = hashlib.sha1()
     try:
         if os.path.exists(file_path):
-            #print('{}'.format(file_path))
+            logger.debug('{}'.format(file_path))
             with open(file_path, 'rb') as f:
                 while True:
                     d = f.read(BUF_SIZE)
@@ -68,7 +74,7 @@ def make_hash(file_path):
             hashes['MD5'] = 'Missing file'
             hashes['SHA1'] = 'Missing file'
     except Exception as e:
-        print('ERROR: [{}]\n{}'.format(file_path,e))
+        logger.error('ERROR: [{}]\n{}'.format(file_path,e))
         
         hashes['MD5'] = 'ERROR'
         hashes['SHA1'] = 'ERROR'
@@ -80,39 +86,65 @@ def scan_folders(folder, root_name):
     picklename = '{}.pickle'.format(root_name)
     data = load_pickle(picklename=picklename)
 
-    file_list = []
-    if 'files' in data:
-        file_list = data['files']
-    else:
-        for file_item in scanFiles(folder):
-            file_list.append(file_item)
+    file_list = data.get('files',[])
+    file_details = data.get('biblo',{})
+    file_hashes = data.get('file_hashes',{})
+    file_scans = data.get('scans',[])
 
-        data['files'] = file_list    
-        save_pickle(data=data, picklename=picklename)
+    new_file_list = []
+    for file_item in scanFiles(folder):
+        # check if we have the file?
+        filename = file_item.get("file")
+        if filename in file_details:
+            # do we have the current file here too
+            found = False
+            for f in file_details.get(filename, {}).get("files",[]):
+                # compare file data....
+                if f.get("folder") == file_item.get("folder") \
+                    and f.get("file") == file_item.get("file") \
+                    and f.get("size") == file_item.get("size"):
+                    found = True
+                    break
 
-    print('Found {} files'.format(len(data['files'])))
+            if found:
+                if len(new_file_list) % 1000 ==0:
+                    logger.debug("found: {} new / updated files".format(len(new_file_list)))
+
+                file_list.append(file_item)    
+                new_file_list.append(file_item)    
+
+        else:
+            file_list.append(file_item)    
+            new_file_list.append(file_item)    
+
+    if len(new_file_list) > 0:
+        file_scans.append({
+            "scan":datetime.now().strftime("%Y-%m-%d %H:%M%S"),
+            "files":new_file_list
+        })
+
+    data['scans'] = file_scans 
+    data['files'] = file_list    
+    save_pickle(data=data, picklename=picklename)
+
+    logger.info('Found {} files'.format(len(new_file_list)))
 
     # sort the files...
-    file_details = {}
-    if 'biblo' in data:
-        file_details = data['biblo']
-    else:
-        for file_item in file_list:
-            file_name = file_item['file']
-            if file_name not in file_details:
-                file_details[file_name] = {}
-                file_details[file_name]['paths'] = []
-                file_details[file_name]['files'] = []
+    for file_item in new_file_list:
+        file_name = file_item['file']
+        if file_name not in file_details:
+            file_details[file_name] = {}
+            file_details[file_name]['paths'] = []
+            file_details[file_name]['files'] = []
 
-            file_details[file_name]['paths'].append(file_item['folder'])
-            file_details[file_name]['files'].append(file_item)
+        file_details[file_name]['paths'].append(file_item['folder'])
+        file_details[file_name]['files'].append(file_item)
 
-        data['biblo'] = file_details
-        save_pickle(data=data, picklename=picklename)
+    data['biblo'] = file_details
+    save_pickle(data=data, picklename=picklename)
 
-    print('Found {} unique files.'.format(len(file_details)))
+    logger.info('Found {} unique files.'.format(len(file_details)))
 
-    file_hashes = {}
     duplicates = 0
     completed = 0
     zeros = 0
@@ -120,37 +152,40 @@ def scan_folders(folder, root_name):
     snap_time = time.time()
 
     # calc SHA Hassh on file...
-    if 'file_hashes' in data:
-        file_hashes = data['file_hashes']
-    else:
-        for file_name in file_details:
-            file_item = file_details[file_name]
-            for f in file_item['files']:
-                if f['size'] == 0:
-                    zeros += 1
-                    continue
-                
-                f_path = os.path.join(f['folder'], f['file'])
-                hashes = make_hash(f_path)
-                sha_hash = '{}'.format(hashes['SHA1'])
+    for file_name in file_details:
+        file_item = file_details[file_name]
+        for f in file_item.get('files',[]):
+            if f['size'] == 0:
+                zeros += 1
+                continue
             
-                completed += 1
-                elapsed_time = time.time() - start_time
-                if sha_hash not in file_hashes:
-                    file_hashes[sha_hash] = []
-                else:
-                    duplicates += 1
-                
-                if completed % 1000 == 0 or (time.time() - snap_time) > 300:
-                    snap_time = time.time()
-                    print('\t{} ({} Dups {} Zeros) of {} over {}'.format(completed, duplicates, zeros, len(file_list), elapsed_time))
+            if f.get("hashes"):
+                # we have the hash alreqady saved skipp
+                continue
 
-                file_hashes[sha_hash].append(f)
+            f_path = os.path.join(f['folder'], f['file'])
+            hashes = make_hash(f_path)
+            f["hashes"] = hashes
+
+            sha_hash = '{}'.format(hashes['SHA1'])
+        
+            completed += 1
+            elapsed_time = time.time() - start_time
+            if sha_hash not in file_hashes:
+                file_hashes[sha_hash] = []
+            else:
+                duplicates += 1
+            
+            if completed % 1000 == 0 or (time.time() - snap_time) > 300:
+                snap_time = time.time()
+                logger.info('\t{} ({} Dups {} Zeros) of {} over {}'.format(completed, duplicates, zeros, len(file_list), elapsed_time))
+
+            file_hashes[sha_hash].append(f)
 
         data['file_hashes'] = file_hashes
         save_pickle(data=data, picklename=picklename)
 
-    print('Found {} unique hashes, {} duplicates'.format(len(file_hashes), duplicates))
+    logger.info('Found {} unique hashes, {} duplicates'.format(len(file_hashes), duplicates))
     return data
 
 if __name__ == '__main__':
@@ -174,6 +209,6 @@ if __name__ == '__main__':
     data = {}
     data = load_pickle(picklename=folder_cnf_data.get('picklename'))
     for item in folders:
-        print('Scanning...\n\t{} -> {}'.format(item.get('root_name'), item.get('folder')))
+        logger.info('Scanning...\n\t{} -> {}'.format(item.get('root_name'), item.get('folder')))
         data[item.get('root_name')]= scan_folders(item.get('folder'), item.get('root_name'))
     save_pickle(data=data, picklename=folder_cnf_data.get('picklename'))
