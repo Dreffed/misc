@@ -1,5 +1,7 @@
 from atlassian import Jira
 import re
+import os
+from datetime import datetime
 from utils import load_json, save_json, load_pickle, save_pickle, export_csv
 from nltk.tokenize import sent_tokenize
 import logging
@@ -22,7 +24,7 @@ def connect_jira():
         password=token)
     return jira
 
-def get_issues(jira, jql):
+def get_tickets(jira, jql):
     issues = []
     total = 0
     start = 0
@@ -45,7 +47,7 @@ def get_issues(jira, jql):
         print(ex)
     return issues
 
-def process_issue(item):
+def process_ticket(item):
     """ Extract fields from JIRA Issue JSON
         => Key
         => id
@@ -123,48 +125,21 @@ def extract_event(description):
             data.append(s)
     return data
 
-def main():
-    pickle_name = 'jira.pickle'
-    data = load_pickle(picklename=pickle_name)
-
-    if not 'jql' in data:
-        jql = 'project = "OF" AND text ~ "events" ORDER BY created DESC'
-        data['jql'] = jql
-
-    jql = data.get('jql') 
-    logger.info("JQL: {}".format(jql))
-
-    file_name="issues.json"
-    issues = load_json(file_name)
-    if not issues or len(issues) == 0:
-        jira = connect_jira()
-        issues = get_issues(jira, jql)
-        save_json(data=issues, file_name=file_name)
-    
-    if not 'issues' in data:
-        data['issues'] = []
-        for item in issues:
-            data['issues'].append(process_issue(item))
-        save_json(data=data['issues'], file_name='jira_tickets.json')
-    
-    logger.info("Processed {} tickets".format(len(data['issues'])))
-    save_pickle(data=data, picklename=pickle_name)
-
+def filter_events(data, filename="events.csv"):
     # process the description text for information
     events = {}
-    for item in data.get('issues', []):
-        descr = item.get('description')
+    for k,v in data.get('tickets', {}).items():
+        descr = v.get('description')
         if descr:
             sentences = extract_event(descr)
             event = parse_clause(sentences)
             if len(event.get('condition'))>0:
-                for k in ['name','summary', 'type', 'subtask', 'project', 'project key', 'status']:
-                    event[k] = item.get(k)
+                for f in ['name','summary', 'type', 'subtask', 'project', 'project key', 'status']:
+                    event[f] = v.get(f)
 
-                events[item.get('key')] = event
+                events[k] = event
 
-    data['events'] = events
-
+    # export the events to a csv
     rows = []
     for k,v in events.items():
         row = {}
@@ -178,8 +153,86 @@ def main():
 
         rows.append(row)
 
-    export_csv(data=rows, filename='of_events.csv')
-    logger.info('Exported {} evetns'.format(len(rows)))
+    export_csv(data=rows, filename=filename)
+    logger.info('Exported {} events'.format(len(rows)))
+    return events
+
+def process_extract(config):
+    """ this will run the query specified in the config extract array
+    and save of the results to a pickle file
+    """
+    logging.info("Running {}".format(config.get("name")))
+
+    folders = config.get("file", {}).get("location",{}).get("folders",[])
+    root = config.get("file", {}).get("location",{}).get("root","~")
+    folder = os.path.expanduser(os.path.join(root, *folders))
+    name = config.get("file", {}).get("location",{}).get("name","jira_utils")
+
+    pickle_name = os.path.join(folder, "{}.{}".format(name, config.get("file", {}).get("type","pickle")))
+
+    data = load_pickle(picklename=pickle_name)
+    if "tickets" not in data:
+        data['tickets'] = {}
+
+    jql = config.get("jql")
+
+    if not 'jql' in data:
+        data['jql'] = jql
+
+    logger.info("JQL: {}".format(jql))
+
+    # query jira and pull down the issues
+    runtime = datetime.now().strftime("%Y-%m-%d %H:%M%S")
+    file_name = os.path.join(folder, "{}_issues.json".format(name))
+    issues = load_json(file_name)
+
+    reload = True
+    if issues and issues.get("jql") == jql and len(issues.get('tickets',[])) > 0:
+        # we have a version of this query run already...
+        reload = False
+
+    if reload:
+        issues = {}
+        jira = connect_jira()
+        issues['jql'] = jql
+        issues['runtime'] = runtime
+        issues['tickets'] = get_tickets(jira, jql)
+        save_json(data=issues, file_name=file_name)
+        data['jql'] = jql
+        
+    for ticket in issues.get("tickets"):
+        item = process_ticket(ticket)
+        key = item.get("key")
+
+        old_ticket = data.get("tickets",{}).get(key, None)
+        
+        if old_ticket:
+            # check this ticket is current
+            # curently alway update
+            update_ticket = True
+        else:
+            update_ticket = True
+
+        if update_ticket:
+            data['tickets'][key] = item
+
+    logger.info("Processed {} tickets".format(len(data['tickets'])))
+    save_pickle(data=data, picklename=pickle_name)
+
+    if config.get("filter"):
+        filter_name = config.get("filter",{}).get("name","filter")
+        csv_name = os.path.join(folder, "{}.{}.csv".format(name, filter_name))
+        data[filter_name] = filter_events(data=data, filename=csv_name)
+
+def main():
+    """ performs the defualt run of the program
+    """
+    config_file = "utils_jira_config.json"
+    config = load_json(config_file)
+
+    for e in config.get("extracts", []):
+        process_extract(e)
+
 
 if __name__ == "__main__":
     main()

@@ -32,7 +32,7 @@ def load_json(file_name=r"settings.json"):
 def save_json(data = {}, file_name=r"settings.json"):
     # Save the credentials object to file
     with open(file_name, "w") as file:  
-        dump(data, file)    
+        file.write(dumps(data, indent = 4)) 
 
 def read_file(file_name):
     if not os.path.exists(file_name):

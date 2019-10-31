@@ -9,10 +9,12 @@ from datetime import datetime
 from utils import load_pickle, save_pickle
 import logging
 from logging.config import fileConfig
+
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
 
 def get_info(filepath):
+    """ Scans the file and returns the access, mod and create time in a YYYY-MM-DD HH:MM:SS format"""
     time_format = "%Y-%m-%d %H:%M:%S"
     try:
         file_stats = os.stat(filepath)
@@ -33,15 +35,15 @@ def scanFiles(folder):
             filepath = os.path.join(dirpath,filename)
             _, ext = os.path.splitext(filename)
             try:
-                mTime, aTime, fSize = get_info(filepath)
+                m_time, a_time, f_size = get_info(filepath)
                 # save the format
                 data = {
                     "folder" : dirpath, 
                     "file" : filename, 
                     "ext": ext,
-                    "modified" : mTime, 
-                    "accessed" : aTime, 
-                    "size" : fSize
+                    "modified" : m_time, 
+                    "accessed" : a_time, 
+                    "size" : f_size
                 }
                 yield data
 
@@ -49,6 +51,7 @@ def scanFiles(folder):
                 logger.error("Error: scanning file stats - {}".format(e))
 
 def make_hash(file_path):
+    """ Will hash the files for both MD5 and SHA1 and return a dict of the hashes"""
     hashes = {}
     #print('[{}]'.format(file_path))
 
@@ -82,6 +85,10 @@ def make_hash(file_path):
     return hashes
 
 def scan_folders(folder, root_name):
+    """ will take the supplied path, use scanFiles to get a yeild of files
+    It will check to see if the file is already scanned, if it is not or 
+    it is updated it will get the hash
+    """
     data = {}
     picklename = '{}.pickle'.format(root_name)
     data = load_pickle(picklename=picklename)
@@ -206,9 +213,8 @@ if __name__ == '__main__':
             json.dump(folder_cnf_data, outfile)
     folders = folder_cnf_data.get('folders')
 
-    data = {}
-    data = load_pickle(picklename=folder_cnf_data.get('picklename'))
+    data = load_pickle(picklename=folder_cnf_data.get('picklename','get_files.pickle'))
     for item in folders:
         logger.info('Scanning...\n\t{} -> {}'.format(item.get('root_name'), item.get('folder')))
         data[item.get('root_name')]= scan_folders(item.get('folder'), item.get('root_name'))
-    save_pickle(data=data, picklename=folder_cnf_data.get('picklename'))
+    save_pickle(data=data, picklename=folder_cnf_data.get('picklename','get_files.pickle'))
