@@ -84,7 +84,7 @@ def make_hash(file_path):
 
     return hashes
 
-def scan_folders(folder, root_name):
+def scan_folders(folder, root_name, hash_list = None):
     """ will take the supplied path, use scanFiles to get a yeild of files
     It will check to see if the file is already scanned, if it is not or 
     it is updated it will get the hash
@@ -159,9 +159,12 @@ def scan_folders(folder, root_name):
     snap_time = time.time()
 
     # calc SHA Hassh on file...
+    if not hash_list:
+        hash_list = []
+
     for file_name in file_details:
         _, ext = os.path.splitext(file_name)
-        if ext not in ['.vsdx', '.vsd', '.xls', '.xlsx', '.doc', '.docx']:
+        if ext not in hash_list:
             continue
 
         file_item = file_details[file_name]
@@ -193,32 +196,35 @@ def scan_folders(folder, root_name):
 
             file_hashes[sha_hash].append(f)
 
-        data['file_hashes'] = file_hashes
-        save_pickle(data=data, picklename=picklename)
+    data['file_hashes'] = file_hashes
+    save_pickle(data=data, picklename=picklename)
 
     logger.info('Found {} unique hashes, {} duplicates'.format(len(file_hashes), duplicates))
     return data
 
 if __name__ == '__main__':
     config_path = 'getfiles_settings.json'
-    folder_cnf_data = {}
+    config_data = {}
 
     if os.path.exists(config_path):
-        folder_cnf_data = json.load(open(config_path))
+        config_data = json.load(open(config_path))
 
     else:
-        folder_cnf_data['folders'] = [
+        config_data['folders'] = [
             {
                 'root_name': 'root', 
                 'folder':'/'
             }
         ]
         with open(config_path, 'w') as outfile:
-            json.dump(folder_cnf_data, outfile)
-    folders = folder_cnf_data.get('folders')
+            json.dump(config_data, outfile)
 
-    data = load_pickle(picklename=folder_cnf_data.get('picklename','get_files.pickle'))
+    folders = config_data.get('folders')
+    hash_list = config_data.get('hashlist', [])
+
+    data = load_pickle(picklename=config_data.get('picklename','get_files.pickle'))
     for item in folders:
         logger.info('Scanning...\n\t{} -> {}'.format(item.get('root_name'), item.get('folder')))
-        data[item.get('root_name')]= scan_folders(item.get('folder'), item.get('root_name'))
-    save_pickle(data=data, picklename=folder_cnf_data.get('picklename','get_files.pickle'))
+        data[item.get('root_name')]= scan_folders(folder=item.get('folder'), root_name=item.get('root_name'), hash_list=hash_list)
+
+    save_pickle(data=data, picklename=config_data.get('picklename','get_files.pickle'))
