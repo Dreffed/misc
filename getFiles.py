@@ -160,6 +160,10 @@ def scan_folders(folder, root_name):
 
     # calc SHA Hassh on file...
     for file_name in file_details:
+        f_name,ext = os.path.splitext(file_name)
+        if ext not in ['.vsdx', '.vsd', '.xls', '.xlsx', '.doc', '.docx']:
+            continue
+        
         file_item = file_details[file_name]
         for f in file_item.get('files',[]):
             if f['size'] == 0:
