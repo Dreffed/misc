@@ -131,7 +131,7 @@ def scan_folders(folder, root_name, hash_list = None):
         })
 
     data['scans'] = file_scans 
-    data['files'] = file_list    
+    data['files'] = file_list
     save_pickle(data=data, picklename=picklename)
 
     logger.info('Found {} files'.format(len(new_file_list)))
@@ -172,7 +172,7 @@ def scan_folders(folder, root_name, hash_list = None):
             if f['size'] == 0:
                 zeros += 1
                 continue
-            
+
             if f.get("hashes"):
                 # we have the hash alreqady saved skipp
                 continue
@@ -182,14 +182,14 @@ def scan_folders(folder, root_name, hash_list = None):
             f["hashes"] = hashes
 
             sha_hash = '{}'.format(hashes['SHA1'])
-        
+
             completed += 1
             elapsed_time = time.time() - start_time
             if sha_hash not in file_hashes:
                 file_hashes[sha_hash] = []
             else:
                 duplicates += 1
-            
+
             if completed % 1000 == 0 or (time.time() - snap_time) > 300:
                 snap_time = time.time()
                 logger.info('\t{} ({} Dups {} Zeros) of {} over {}'.format(completed, duplicates, zeros, len(file_list), elapsed_time))
