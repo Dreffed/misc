@@ -7,6 +7,7 @@ import hashlib
 import json
 from datetime import datetime
 from utils import load_pickle, save_pickle
+from utils_scanfiles import scantree
 import logging
 from logging.config import fileConfig
 
@@ -99,25 +100,29 @@ def scan_folders(folder, root_name, hash_list = None):
     file_scans = data.get('scans',[])
 
     new_file_list = []
-    for file_item in scanFiles(folder):
+    for i, file_item in enumerate(scantree(folder)):
         # check if we have the file?
         filename = file_item.get("file")
         if filename in file_details:
             # do we have the current file here too
             found = False
+
             for f in file_details.get(filename, {}).get("files",[]):
                 # compare file data....
                 if f.get("folder") == file_item.get("folder") \
-                    and f.get("file") == file_item.get("file") \
-                    and f.get("size") == file_item.get("size"):
+                    and f.get("file") == file_item.get("file"):
                     found = True
+
+                    if f.get("size") != file_item.get("size") or \
+                        f.get("modified") != file_item.get("modified"):
+                        f = file_item
+                        new_file_list.append(file_item) 
+
                     break
 
-            if found:
-                if len(new_file_list) % 1000 ==0:
-                    logger.debug("found: {} new / updated files".format(len(new_file_list)))
-
-                file_list.append(file_item)    
+            if not found:
+                if i % 1000 == 0:
+                    logger.debug("Scanned {}: found: {} new / updated files".format(i, len(new_file_list)))
                 new_file_list.append(file_item)    
 
         else:
