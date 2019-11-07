@@ -94,11 +94,10 @@ def scan_folders(folder, root_name, hash_list = None):
     picklename = '{}.pickle'.format(root_name)
     data = load_pickle(picklename=picklename)
 
-    file_list = data.get('files',[])
     file_details = data.get('biblo',{})
-    file_hashes = data.get('file_hashes',{})
     file_scans = data.get('scans',[])
 
+    # get the file list, check if files have been updated...
     new_file_list = []
     for i, file_item in enumerate(scantree(folder)):
         # check if we have the file?
@@ -121,42 +120,38 @@ def scan_folders(folder, root_name, hash_list = None):
                     break
 
             if not found:
-                if i % 1000 == 0:
-                    logger.debug("Scanned {}: found: {} new / updated files".format(i, len(new_file_list)))
-                new_file_list.append(file_item)    
+                new_file_list.append(file_item)
+                file_details[filename].append(file_item)   
 
         else:
-            file_list.append(file_item)    
+            file_details[filename] = []
+            file_details[filename].append(file_item)  
             new_file_list.append(file_item)    
 
+        if i % 1000 == 0:
+            logger.debug("Scanned {}: Found: {} new / updated files".format(i, len(new_file_list)))
+
+    # add the scan with the new files...
     if len(new_file_list) > 0:
         file_scans.append({
             "scan":datetime.now().strftime("%Y-%m-%d %H:%M%S"),
             "files":new_file_list
         })
 
-    data['scans'] = file_scans 
-    data['files'] = file_list
-    save_pickle(data=data, picklename=picklename)
+    data['scans'] = file_scans
+    data['biblo'] = file_details
 
     logger.info('Found {} files'.format(len(new_file_list)))
 
-    # sort the files...
-    for file_item in new_file_list:
-        file_name = file_item['file']
-        if file_name not in file_details:
-            file_details[file_name] = {}
-            file_details[file_name]['paths'] = []
-            file_details[file_name]['files'] = []
-
-        file_details[file_name]['paths'].append(file_item['folder'])
-        file_details[file_name]['files'].append(file_item)
-
-    data['biblo'] = file_details
     save_pickle(data=data, picklename=picklename)
+    return data
 
-    logger.info('Found {} unique files.'.format(len(file_details)))
+def update_hashes(data, root_name, hash_list=None):
+    """This is scan the biblo and generate the hashes if
+    there are missing and if the ext is in the hash_list"""
 
+    picklename = '{}.pickle'.format(root_name)
+    
     duplicates = 0
     completed = 0
     zeros = 0
@@ -167,19 +162,21 @@ def scan_folders(folder, root_name, hash_list = None):
     if not hash_list:
         hash_list = []
 
-    for file_name in file_details:
-        _, ext = os.path.splitext(file_name)
+    file_hashes = data.get('file_hashes',{})
+
+    for k, v in  data.get('biblo',{}).items():
+        _, ext = os.path.splitext(k)
+
         if ext not in hash_list:
             continue
 
-        file_item = file_details[file_name]
-        for f in file_item.get('files',[]):
+        for f in v:
             if f['size'] == 0:
                 zeros += 1
                 continue
 
             if f.get("hashes"):
-                # we have the hash alreqady saved skipp
+                # we have the hash already saved skip
                 continue
 
             f_path = os.path.join(f['folder'], f['file'])
@@ -190,6 +187,7 @@ def scan_folders(folder, root_name, hash_list = None):
 
             completed += 1
             elapsed_time = time.time() - start_time
+
             if sha_hash not in file_hashes:
                 file_hashes[sha_hash] = []
             else:
@@ -197,7 +195,7 @@ def scan_folders(folder, root_name, hash_list = None):
 
             if completed % 1000 == 0 or (time.time() - snap_time) > 300:
                 snap_time = time.time()
-                logger.info('\t{} ({} Dups {} Zeros) of {} over {}'.format(completed, duplicates, zeros, len(file_list), elapsed_time))
+                logger.info('\t{} ({} Dups {} Zeros) over {}'.format(completed, duplicates, zeros, elapsed_time))
 
             file_hashes[sha_hash].append(f)
 
@@ -226,10 +224,45 @@ if __name__ == '__main__':
 
     folders = config_data.get('folders')
     hash_list = config_data.get('hashlist', [])
+    picklename = config_data.get('picklename','get_files.pickle')
+    copy_files = []
+    copy_files.append(picklename)
 
-    data = load_pickle(picklename=config_data.get('picklename','get_files.pickle'))
+    data = load_pickle(picklename=picklename)
     for item in folders:
         logger.info('Scanning...\n\t{} -> {}'.format(item.get('root_name'), item.get('folder')))
-        data[item.get('root_name')]= scan_folders(folder=item.get('folder'), root_name=item.get('root_name'), hash_list=hash_list)
+        copy_files.append("{}.pickle".format(item.get('root_name')))
 
-    save_pickle(data=data, picklename=config_data.get('picklename','get_files.pickle'))
+        data[item.get('root_name')] = scan_folders(folder=item.get('folder'), root_name=item.get('root_name'), hash_list=hash_list)
+        data[item.get('root_name')] = update_hashes(data=data[item.get('root_name')], root_name=item.get('root_name'), hash_list=hash_list)
+
+    save_pickle(data=data, picklename=picklename)
+
+    # upload the pickles to the one drive....
+    archive_folders = [r'C:\\', 'Users', 'dgloyncox', 'OneDrive - Great Canadian Railtour Co', 'Jupyter_NB', 'output']
+    archive_path = os.path.join(*archive_folders)
+
+    import socket
+    import shutil
+    hostname = socket.gethostname()
+
+    for filename in copy_files:
+        name, ext = os.path.splitext(filename)
+        newname = '{}.{}.{}'.format(name, hostname, ext)
+        dstpath = os.path.join(archive_path, newname)
+        i = 0
+        while True:
+            if not os.path.exists(dstpath):
+                break
+
+            i+=1
+            newname = '{}.{}.({}).{}'.format(name, hostname, i, ext)
+            dstpath = os.path.join(archive_path, newname)
+
+        shutil.copy(filename, dstpath)
+
+
+
+            
+
+
