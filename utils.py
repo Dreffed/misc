@@ -54,3 +54,35 @@ def export_csv(data, filename = 'export.csv', fields = None):
         dict_writer.writeheader()
 
         dict_writer.writerows(data)
+
+def display_object(data, depth=1):
+    print_items(data, depth)
+
+def print_items(obj, depth=0, max_depth=5):
+    if depth > max_depth:
+        return
+    
+    print('{}{}=>{}'.format('','\t'*depth, type(obj)))
+    if isinstance(obj, dict):
+        for k,v in obj.items():
+            if not v is None:
+                try:
+                    print('{}{}:{} => {}'.format('\t'*(depth+1), k, type(v), len(v)))
+                    
+                except:
+                    print('{}{}:{}'.format('\t'*(depth+1), k, type(v)))
+                print_items(v, depth+1)
+            else:
+                print('{}{}'.format('\t'*(depth+1), k))
+    elif isinstance(obj, list):
+        print('{}List of {} items'.format('\t'*(depth+1), len(obj)))
+        max = (5 if len(obj) > 5 else len(obj))
+        for i in  range(0, max):
+            print('{}--\t{}'.format('\t'*(depth+1), obj[i]))
+        if len(obj) > 0:
+            print_items(obj[0],depth+1)
+    else:
+        try:
+            print('{}{}:{} items'.format('\t'*(depth+1), type(obj), len(obj)))
+        except:
+            print('{}[{}] items'.format('\t'*(depth+1), "ERROR"))

@@ -6,10 +6,10 @@ import logging
 from logging.config import fileConfig
 import csv
 import uuid
-import node_models as nm
-from utils import load_settings, save_settings, read_file, export_csv
-from neomodel import db, config, StructuredRel, StructuredNode, StringProperty, IntegerProperty, \
-    UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist
+#import node_models as nm
+from utils import load_settings, save_settings, read_file, export_csv, print_items, display_object
+#from neomodel import db, config, StructuredRel, StructuredNode, StringProperty, IntegerProperty, \
+#    UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def summarize_data(data):
                 page_data = {}
 
                 logger.info('{}'.format('\t{}'.format(dwg_page['name'])))
-                print('{}'.format('=====\n{}'.format(dwg_page['name'])))
+                #print('{}'.format('=====\n{}'.format(dwg_page['name'])))
 
                 if not 'GUID' in dwg_page:
                     dwg_page['GUID'] = uuid.uuid4()
@@ -237,6 +237,12 @@ obj_model = {
 "fileGUID":None, "filename":None, "title":None, "creator":None, "pageGUID":None, "pagename":None, "objectype":None, "shapeGUID":None, "shapeID":None, "shapeName":None, "shapeType":None, "shapeText":None, "shapeCallouts":None, "shapeConnects":None, "shapeConnected":None, "shapeContain":None
 }
 
-logger.info('Found {} object types'.format(len(object_types)))
+#logger.info('Found {} object types'.format(len(object_types)))
 
-export_csv(fields=obj_model, data=object_types)
+#print_items(obj=object_types)
+
+rows = []
+for k,v in object_types.items():
+    rows.extend(v)
+
+export_csv(fields=obj_model, data=rows)
