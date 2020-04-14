@@ -14,11 +14,16 @@ from neomodel import db, config, StructuredRel, StructuredNode, StringProperty, 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
 
-neo_connect_file = "neo4j_settings.json"
+def connect():
+    neo_connect_file = "neo4j_settings.json"
 
-settings = load_settings(neo_connect_file)
-config.DATABASE_URL = settings['neo4j']['database_url']
-db.set_connection(settings['neo4j']['database_url'])
+    settings = load_settings(neo_connect_file)
+    uname = settings['neo4j']['user']
+    token = settings['neo4j']['token']
+    db_url = settings['neo4j']['database_url'].format(uname, token)
+    print(db_url)
+    config.DATABASE_URL = db_url
+    db.set_connection(db_url)
 
 def summarize_data(data):
     '''This will scan the log file and produce stats in the data found'''
@@ -57,10 +62,10 @@ def summarize_data(data):
             logger.info('{}'.format(file_name))
 
             file_index += 1
-            try:
-                file_node = nm.FileNode.nodes.get(id=file_guid)
-            except DoesNotExist as e:
-                file_node = nm.FileNode(id=file_guid, name=file_name, path=file_folder, wbs=file_wbs).save()
+            #try:
+            #    file_node = nm.FileNode.nodes.get(id=file_guid)
+            #except DoesNotExist as e:
+            #    file_node = nm.FileNode(id=file_guid, name=file_name, path=file_folder, wbs=file_wbs).save()
 
             relationships[file_wbs]['guid'] = file_guid
 
@@ -83,10 +88,10 @@ def summarize_data(data):
                 page_data['name'] = page_name
                 page_data['guid'] = page_guid
 
-                try:
-                    page_node = nm.PageNode.nodes.get(id=page_guid)
-                except DoesNotExist as e:
-                    page_node = nm.PageNode(id=page_guid, name=page_name, wbs=page_wbs).save()
+                #try:
+                #    page_node = nm.PageNode.nodes.get(id=page_guid)
+                #except DoesNotExist as e:
+                #    page_node = nm.PageNode(id=page_guid, name=page_name, wbs=page_wbs).save()
                     
                 if 'objects' in dwg_page:
                     pool = {}
@@ -221,16 +226,17 @@ def summarize_data(data):
     else:
         print('no files found in saved data! \n\tPath: {}'.format(data['folders']))
 
-    print('{}'.format(json.dumps(relationships, indent=4)))   
+    #print('{}'.format(json.dumps(relationships, indent=4)))   
     return object_types
 
 pickle_file = 'visio_data.pickle'
 data = get_pickle_data( pickle_file)
 object_types = summarize_data(data)
+#print(object_types)
 obj_model = {
 "fileGUID":None, "filename":None, "title":None, "creator":None, "pageGUID":None, "pagename":None, "objectype":None, "shapeGUID":None, "shapeID":None, "shapeName":None, "shapeType":None, "shapeText":None, "shapeCallouts":None, "shapeConnects":None, "shapeConnected":None, "shapeContain":None
 }
 
 logger.info('Found {} object types'.format(len(object_types)))
 
-export_csv(obj_model, object_types)
+export_csv(fields=obj_model, data=object_types)
