@@ -1,0 +1,45 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.0
+  kernelspec:
+    display_name: Python [conda env:py37]
+    language: python
+    name: conda-env-py37-py
+---
+
+```{python}
+try:
+    from bs4 import BeautifulSoup
+except:
+    !pip install beautifulsoup4
+    
+import requests
+
+```
+
+```{python}
+# load the page to BS
+def get_soup(url):
+    page = requests.get(url)
+
+    # Create a BeautifulSoup object
+    soup = BeautifulSoup(page.text, 'html.parser')
+    return soup
+
+
+```
+
+```{python}
+#url = "https://www2.gov.bc.ca/gov/content/governments/services-for-government/information-management-technology/records-management/information-schedules/arcs/administrative-records/general"
+url = "https://www.google.ca"
+soup = get_soup(url)
+```
+
+```{python}
+print(soup)
+```

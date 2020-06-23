@@ -1,0 +1,168 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.0
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+```{python}
+# warning: pdfminer uses python 2
+from __future__ import division
+```
+
+```{python}
+example_file = r"C:\Users\David Gloyn-Cox\Dropbox\personal\accounts\bank\downloads\statement-5813532321604827-18Jul01.pdf"
+```
+
+```{python}
+from pdfminer.pdfparser import PDFParser
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfpage import PDFPage
+from pdfminer.pdfpage import PDFTextExtractionNotAllowed
+from pdfminer.pdfinterp import PDFResourceManager
+from pdfminer.pdfinterp import PDFPageInterpreter
+from pdfminer.layout import LAParams
+from pdfminer.converter import PDFPageAggregator
+
+
+def extract_layout_by_page(pdf_path):
+    """
+    Extracts LTPage objects from a pdf file.
+    
+    slightly modified from
+    https://euske.github.io/pdfminer/programming.html
+    """
+    laparams = LAParams()
+
+    fp = open(pdf_path, 'rb')
+    parser = PDFParser(fp)
+    document = PDFDocument(parser)
+
+    if not document.is_extractable:
+        raise PDFTextExtractionNotAllowed
+
+    rsrcmgr = PDFResourceManager()
+    device = PDFPageAggregator(rsrcmgr, laparams=laparams)
+    interpreter = PDFPageInterpreter(rsrcmgr, device)
+
+    layouts = []
+    for page in PDFPage.create_pages(document):
+        interpreter.process_page(page)
+        layouts.append(device.get_result())
+
+    return layouts
+
+page_layouts = extract_layout_by_page(example_file)
+```
+
+```{python}
+len(page_layouts)
+```
+
+```{python}
+objects_on_page = set(type(o) for o in page_layouts[3])
+objects_on_page
+```
+
+```{python}
+import pdfminer
+
+TEXT_ELEMENTS = [
+    pdfminer.layout.LTTextBox,
+    pdfminer.layout.LTTextBoxHorizontal,
+    pdfminer.layout.LTTextLine,
+    pdfminer.layout.LTTextLineHorizontal
+]
+
+def flatten(lst):
+    """Flattens a list of lists"""
+    return [subelem for elem in lst for subelem in elem]
+
+
+def extract_characters(element):
+    """
+    Recursively extracts individual characters from 
+    text elements. 
+    """
+    if isinstance(element, pdfminer.layout.LTChar):
+        return [element]
+
+    if any(isinstance(element, i) for i in TEXT_ELEMENTS):
+        return flatten([extract_characters(e) for e in element])
+
+    if isinstance(element, list):
+        return flatten([extract_characters(l) for l in element])
+
+    return []
+```
+
+```{python}
+current_page = page_layouts[4]
+
+texts = []
+rects = []
+
+# seperate text and rectangle elements
+for e in current_page:
+    if isinstance(e, pdfminer.layout.LTTextBoxHorizontal):
+        texts.append(e)
+    elif isinstance(e, pdfminer.layout.LTRect):
+        rects.append(e)
+
+# sort them into 
+characters = extract_characters(texts)
+```
+
+```{python}
+import matplotlib.pyplot as plt
+from matplotlib import patches
+# %matplotlib inline
+
+   
+def draw_rect_bbox(bbox, ax, color):
+    """
+    Draws an unfilled rectable onto ax.
+    """
+    x0,y0,x1,y1 = bbox
+    ax.add_patch( 
+        patches.Rectangle(
+            (x0, y0),
+            x1 - x0,
+            y1 - y0,
+            fill=False,
+            color=color
+        )    
+    )
+    
+def draw_rect(rect, ax, color="black"):
+    draw_rect_bbox(rect.bbox, ax, color)
+```
+
+```{python}
+xmin, ymin, xmax, ymax = current_page.bbox
+size = 6
+
+fig, ax = plt.subplots(figsize = (size, size * (ymax/xmax)))
+
+for rect in rects:
+    draw_rect(rect, ax)
+    
+for c in characters:
+    draw_rect(c, ax, "red")
+    
+
+plt.xlim(xmin, xmax)
+plt.ylim(ymin, ymax)
+plt.show()
+```
+
+```{python}
+
+```

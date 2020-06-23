@@ -1,0 +1,46 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.0'
+      jupytext_version: 1.0.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+```{python}
+# %pip install Equation
+
+```
+
+```{python}
+from Equation import Expression
+row = {
+    'sasales':4560,
+    'satax':50,
+    'saunit':2300,
+    'comm':0.2
+}
+
+fn = Expression('(saunit * (1-comm)) + satax')
+print(fn)
+```
+
+```{python}
+values = {}
+for f in fn:
+    print(f)
+    values[f] = row.get(f,0)
+    
+print(values)
+    
+fn(**values)
+```
+
+```{python}
+
+```

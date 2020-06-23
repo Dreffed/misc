@@ -1,0 +1,147 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.0
+  kernelspec:
+    display_name: Python [conda env:py37]
+    language: python
+    name: conda-env-py37-py
+---
+
+```{python}
+# import the libaries
+from utils_files import scan_files, make_hash
+from utils_word import get_doc_info
+from utils_excel import get_excel_info
+from utils_pptx import get_pptx_info
+from utils_pdf import get_pdf_info
+import os
+```
+
+```{python}
+# set up the paths
+locations = [
+    {
+        "name": "Downloads",
+        "folders": ["Downloads"],
+        "root":"~"
+    },
+    {
+        "name": "BCFSA",
+        "folders":["Google Drive (david.gloyn-cox@thoughtswinsystems.com)","BCFSA"],
+        "root":"~"
+    }
+]
+
+filetypes = [
+    {    
+        "type":"Word",
+        "ext":[".doc", ".docx"],
+        "infoscanner":get_doc_info
+    },
+    {    
+        "type":"Excel",
+        "ext":[".xls", ".xlsx"],
+        "infoscanner":get_excel_info
+    },
+    {    
+        "type":"PowerPoint",
+        "ext":[".ppt", ".pptx"],
+        "infoscanner":get_pptx_info
+    },
+    {    
+        "type":"PDF",
+        "ext":[".pdf"],
+        "infoscanner":get_pdf_info
+    }
+]
+```
+
+```{python}
+def scanFolder(location):
+    """extract the folder details, and generate a filelist"""
+    name = location.get("name", "default")
+    root = location.get("root", ".")
+    folders = location.get("folders", [])
+    
+    folder = os.path.expanduser(os.path.join(root, *folders))
+    print(folder)
+    for f in scan_files(folder):
+        yield f
+    
+```
+
+```{python}
+def scan(locations, filetypes=None):
+    """This will take a locations object and build a file list"""
+    # helper list
+    fields = ["type","infoscanner"]
+    
+    # pivot the filetypes list
+    if filetypes is None:
+        filetypes = []
+    
+    lookups = {}
+    for filetype in filetypes:
+        for ext in filetype.get("ext", []):
+            lookups[ext] = filetype
+    
+    # process the locations and get the files
+    data = {}
+    for location in locations:
+        for f in scanFolder(location):
+            ext = f.get("ext")
+            if ext in lookups:
+                # matched
+                for field in fields:
+                    f[field] = lookups.get(ext,{}).get(field)
+                
+                # get the hash of this file
+                path = os.path.join(f.get("folder"), f.get("file"))
+                f["hashes"] = make_hash(path)
+                
+                # get the doc_info
+                f['docinfo'] = lookups.get(ext).get("infoscanner")(path)
+                
+                # return the new object
+                yield f
+```
+
+```{python}
+docs = {}
+names = {}
+for f in scan(locations = locations, filetypes = filetypes):
+    # build a hash index
+    hashvalue = f.get('hashes', {}).get('SHA1')
+    if hashvalue not in docs:
+        docs[hashvalue] = []
+        
+    docs[hashvalue].append(f)
+
+    # build a name index
+    name = f.get("file")
+    if name not in names:
+        names[name] = []
+        
+    names[name].append(f)
+```
+
+```{python}
+for k,v in names.items():
+    print("{}".format(k))
+    if isinstance(v, list):
+        for f in v:
+            #print(f)
+            path = os.path.join(f.get("folder"), f.get('file'))
+            size = f.get("size")
+            
+            print("\t{} => {}".format(size, path))
+```
+
+```{python}
+
+```

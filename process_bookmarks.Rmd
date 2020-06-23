@@ -1,0 +1,314 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.0
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+```{python}
+from json import load, dump, dumps
+import os
+
+import requests
+from bs4 import BeautifulSoup
+
+import datetime
+from dateutil.parser import parse as parsedate
+from getFiles import scanFiles, get_info, get_pickle_data, save_pickle_data
+
+```
+
+```{python}
+def get_page(url):
+    try:
+        r = requests.get(url, timeout=5)
+    except:
+        return
+    
+    hs = {}
+    for h in ["Content-Encoding", "Content-Language", "Content-Length", "Content-Location", "Content-MD5", "Content-Range", "Content-Type", "ETag", "Server", "Via", "Warning", "WWW-Authenticate"]:
+        try:
+            hs[h] = r.headers[h]
+        except:
+            pass
+        
+    for h in ["Date", "Expires", "Last-Modified"]:
+        try:
+            url_time = r.headers[h]
+            hs[h] = parsedate(url_time)
+        except:
+            pass
+    
+    soup = BeautifulSoup(r.text, 'html.parser')
+    
+    return {
+        "soup": soup,
+        "headers": hs,
+        "response": r
+    }
+```
+
+```{python}
+def get_meta(soup):
+    row = {}
+    if not soup:
+        return []
+    try:
+        row["title"] = soup.find('title').text
+    except:
+        pass
+    
+    metatags = soup.find_all('meta')
+    for meta in metatags:
+        name = meta.get("name")
+        content = meta.get("content")
+        inner = meta.text
+        
+        row[name] = content
+    return row
+
+```
+
+```{python}
+def load_json(file_path):
+    with open(file_path, encoding='utf-8') as file:  
+        data = load(file)
+    return data    
+```
+
+```{python}
+def get_file_path(file_details):
+    root = file_details.get("root", "")
+    folders = file_details.get("folders", [])
+    name = file_details.get("name")
+    ext = file_details.get("ext")
+    #print(root, folders, name, ext)
+    
+    if ext:
+        if ext[0] != ".":
+            ext = ".{}".format(ext)
+            
+        name = "{}{}".format(name, ext)
+    
+    file_path = os.path.expanduser(os.path.join(root, *folders, name))
+    return file_path
+```
+
+```{python}
+def get_file(file_details, file_type = None):
+    file_path = get_file_path(file_details)
+    #print(file_path)
+    
+    if not os.path.exists(file_path):
+        print("MISSING: {}".format(file_path))
+        return
+    
+    # add a switch here to handle the different file_types
+    switcher = {
+        "json": load_json,
+        "pickle": get_pickle_data
+    }
+    try:
+        data = switcher.get(file_type)(file_path)
+    except:
+        data = None
+        
+    return data
+    
+```
+
+```{python}
+def process_items(item, path):
+    #print(type(item), path)
+    if not isinstance(item, dict):
+        print(item)
+        return []
+    
+    row = {
+        "path": path
+    }
+    
+    for f in ["id", "guid", "name", "type", "url", "date_added", "data_modifed"]:
+        row[f] = item.get(f)
+    
+    for f in ["last_visited", "last_visited_desktop"]:
+        row["date_visited"] = item.get("meta_info", {}).get(f, row.get("last_visited"))
+        
+    rows = []
+    rows.append(row)
+    
+    for child in item.get("children",[]):
+        rows.extend(process_items(child, "{}.<{}>".format(path, item.get("name"))))
+    
+    return rows
+    
+```
+
+```{python}
+def open_bookmarks(file_details, urls):
+    """ This will process the items in the bookmark file 
+        <items> {
+            "id":
+            "guid":
+            "name":
+            "type"  folder | url |
+            "url":
+            "date_added":
+            "date_modifed":
+            "meta_info": {
+                "last_visited":
+            }
+            "children": [items]
+        }
+    and pivot
+            "headers":
+    """
+    
+    file_data = get_file(file_details, "json")
+    rows = []
+    path = "<.>"
+    for k, item in file_data.get("roots",{}).items():
+        rows.extend(process_items(item, "{}.<{}>".format(path, item.get("name"))))
+    
+    if not urls:
+        urls = {}
+        
+    idx = 0
+    step = int(len(rows)/10)
+    
+    print("loading {} urls [step {}]".format(len(rows), step))
+    for r in rows:
+        url = r.get("url")
+        if not url:
+            continue
+        
+        idx += 1
+        if idx % step == 0:
+            print("FETCH:", idx, url)
+        
+        # have we scanned this...
+        if url not in urls:
+            page = get_page(url)
+            if not page:
+                continue
+
+            meta = get_meta(page.get("soup"))
+
+            urls[url] = {}
+            urls[url]["locations"] = []
+            
+            urls[url]["headers"] = {}
+            urls[url]["meta"] = {}
+                        
+            for k,v in page.get("headers").items():
+                if not k:
+                    continue
+                urls[url]["headers"][k] = v
+                
+            for k,v in meta.items():
+                if not k:
+                    continue
+                urls[url]["meta"][k] = v
+            
+        urls[url]["locations"].append(r)
+        
+    return urls
+```
+
+```{python}
+config = {
+    "files":{
+        "bm_win":{
+            "type":"google",
+            "name":"Bookmarks",
+            "ext":"",
+            "folders": ["AppData", "Local", "Google", "Chrome", "User Data", "Default"],
+            "root": "~",
+            },
+        "pickle": {
+            "type": "pickle",
+            "name": "url_data",
+            "ext": "pickle",
+            "folders": [],
+            "root": "."
+        }
+        
+    }
+}
+```
+
+```{python}
+# load the pickle file
+data = get_file(config.get("files",{}).get("pickle",{}), "pickle")
+
+```
+
+```{python}
+data = open_bookmarks(config.get("files",{}).get("bm_win",{}), data)
+print(len(data))
+```
+
+```{python}
+pickle_name = get_file_path(config.get("files",{}).get("pickle",{}))
+save_pickle_data(data=data, pickleName=pickle_name)
+```
+
+```{python}
+from urllib.parse import urlparse
+```
+
+```{python}
+def process_response(urls):
+    idx = 0
+    for k,v in urls.items():
+        idx += 1
+        o = urlparse(k)
+        locations = v.get("locations",[])
+        headers = v.get("headers", {})
+        meta = v.get("meta",{})
+        print("{} => {}".format(k, len(locations)))
+        print("header")
+        for h,hv  in headers.items():
+            print("\t", h,type(hv))
+        print("meta")
+        for m,mv in meta.items():
+            print("\t", m,type(mv))
+        print("url")
+        
+        schema = {
+            "scheme": o.scheme, 
+            "netloc": o.netloc, 
+            "path": o.path, 
+            "params": o.params, 
+            "query": o.query, 
+            "fragment": o.fragment
+        }
+        for u,uv in schema.items():
+            print("\t", u,uv)
+        if idx > 5:
+            break
+```
+
+```{python}
+process_response(data)
+```
+
+```{python}
+
+```
+
+```{python}
+
+save_pickle_data(data=data, pickleName=pickle_name)
+```
+
+```{python}
+
+```

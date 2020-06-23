@@ -1,0 +1,416 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.0'
+      jupytext_version: 1.0.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+```{python}
+try:
+    import selenium
+except:
+    %pip install selenium
+    import selenium
+
+try:
+    import lxml
+except:
+    %pip install lxml
+    import lxml
+
+```
+
+```{python}
+import os, errno
+from datetime import datetime
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+```
+
+```{python}
+directory = os.path.expanduser('~/.local/bin/')
+try:
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+except OSError as e:
+    if e.errno != errno.EEXIST:
+        raise
+        
+```
+
+```{python}
+def load_driver(driver_path=None, options=None):
+    if driver_path:
+        driver = webdriver.Chrome(driver_path, options=options)  # Optional argument, if not specified will search path.
+    else:
+        driver = webdriver.Chrome()
+    return driver
+```
+
+```{python}
+# load the site... give it 5 seconds to load
+def load_url(url,driver):
+    driver.get(url)
+    time.sleep(5)
+    return driver
+
+```
+
+```{python}
+def get_object(element):
+    try:
+        attribs = driver.execute_script('var items = {}; for (index = 0; index < arguments[0].attributes.length; ++index) { items[arguments[0].attributes[index].name] = arguments[0].attributes[index].value }; return items;', element)
+    except:
+        attribs = {}
+        
+    attribs['tag_name'] = element.tag_name
+    attribs['id'] = element.id
+    p_element = element.find_element_by_xpath('..')
+    attribs['parent_id'] = p_element.id
+    attribs['location'] = element.location
+    if element.text:
+        attribs['text'] = element.text
+    return attribs
+```
+
+```{python}
+# get the links (a) elements
+def get_links(driver):
+    links = driver.find_elements_by_tag_name('a')
+    for l in links:
+        attribs = get_object(l)
+        yield attribs
+```
+
+```{python}
+# get the text elements from this page...
+def get_text(driver):
+    text_list = []
+    elems = driver.find_elements_by_tag_name('p')
+    for e in elems:
+        print(e)
+        
+```
+
+```{python}
+def process_url(url, driver=None):
+    # build a list of urls to cycle through...
+    u_list = []
+    link_dict = {}
+    driver = load_url(url, driver)
+    for e in get_links(driver):
+        u = e.get('href')
+        if u:
+            u_list.append(u)
+            link_dict[u] = e
+
+    rm_urls = [k for k in u_list if base_url in k]
+    
+    return {
+        #"driver": driver,
+        "urls": link_dict,
+        "links": rm_urls
+    }
+
+```
+
+```{python}
+# helper functions
+def load_pickle(pickle_name):
+    data = {}
+    if os.path.exists(pickle_name):
+        logger.info('Loading Saved Data... [%s]' % pickle_name)
+        with open(pickle_name, 'rb') as handle:
+            data = pickle.load(handle)
+    return data
+
+def save_pickle(data, pickle_name):
+    logger.info('Saving Data... [%s]' % pickle_name)
+    with open(pickle_name, 'wb') as handle:
+        pickle.dump(data, handle)
+
+```
+
+```{python}
+def walk_tree(element, path='.', depth=0):
+    e_dict = get_object(element)
+    
+    for c_e in element.find_elements_by_xpath("./*"):
+        if not 'children' in e_dict:
+            e_dict['children'] = {}
+        child_dict = walk_tree(c_e, '{}/{}'.format(path,e_dict['id']), depth+1)
+        child_dict['path'] = '{}/{}'.format(path,e_dict['id'])
+        e_dict['children'][child_dict['id']] = child_dict
+        
+    return e_dict
+```
+
+```{python}
+def print_tree(tree_dict, depth=0):
+    elements = []
+    #print('{}{}'.format('\t'*depth, tree_dict.get('id')))
+    #if tree_dict.get('text'):
+    #    print('{}===\n{}\n==='.format('\t'*depth, tree_dict.get('text')))
+    for k,v in tree_dict.get('children', {}).items():
+        elements.append(v)
+        elements.extend(print_tree(v, depth+1))
+    return elements 
+```
+
+```{python}
+def process_elements(elements):
+    ids = []
+    for k,v in elements.items():
+        ids.extend(print_tree(v))
+
+    node_dict = {}
+
+    for e in ids:
+        if e.get('id'):
+            node_dict[e.get('id')] = e
+
+    return node_dict
+```
+
+```{python}
+def process_page(driver, parser):
+    html = driver.execute_script("return document.documentElement.outerHTML")
+    tree = lxml.etree.parse(StringIO(html), parser)
+
+    field = tree.find('body')
+    # Get the XPath that will uniquely select it.
+    path = tree.getpath(field)
+
+    input_from_xpath = driver.find_element_by_xpath(path)
+    e = get_object(input_from_xpath)
+    elements = {}
+    elements[e['parent_id']] = walk_tree(input_from_xpath)
+    return elements
+
+```
+
+```{python}
+import sys
+import os
+import time
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
+import lxml.etree
+import pickle
+
+driver = None
+
+options = Options()
+
+driver_path = os.path.join(directory,'chromedriver_74.exe')
+
+base_url = "https://www.rockymountaineer.com/"
+
+pickle_name = "scan_rm.pickle"
+data = load_pickle(pickle_name)
+
+driver = load_driver(driver_path=driver_path, options=options)
+
+parser = lxml.etree.HTMLParser()
+
+urls = data.get('urls',[])
+if not base_url in urls:
+    urls.append(base_url)
+    
+pages = data.get('pages',{})
+
+skipchars = ['?','#', 'package-search']
+
+print("scanning...")
+for url in urls:
+    if not url in pages:
+        print("\t{}".format(url))
+        if refresh:
+            try:
+                if any(c in url for c in skipchars):
+                    break
+                    
+                page = process_url(url, driver)
+                urls.extend(page.get('links',[]))
+                page['elements'] = process_page(driver, parser)
+                pages[url] = page
+
+
+            except:
+                print("ERROR: scanning {}".format(url))
+
+data['urls'] = urls
+data['pages'] = pages
+
+print(len(urls))
+```
+
+for e in sorted(set(rm_urls)):
+    if len(e) > 0:
+        link = link_dict.get(e, e)
+        print(link)
+
+```{python}
+# close and quit
+driver.quit()
+driver = None
+```
+
+```{python}
+phrases = {}
+
+for k,v in data.get('pages',{}).items():
+    # skip anu url that contains the skip phrases
+    if any(c in k for c in skipchars):
+        continue
+    
+    if isinstance(v, dict):
+        print('\t{}'.format(k))
+        if not v.get('nodes'):
+            nodes = process_elements(v.get('elements', {}))
+            data['pages'][k]['nodes'] = nodes
+        print('\t\tNodes: {}'.format(len(v.get('nodes'))))
+        
+        for n, e in v.get('nodes').items():
+            if e.get('text'):
+                phrase = e.get('text')
+                if not phrase in phrases:
+                    phrases[phrase] = []
+                phrases[phrase].append('{} {}'.format(k,n))
+
+print(len(phrases))
+data['phrases'] = phrases
+
+
+save_pickle(data=data, pickle_name=pickle_name)
+
+```
+
+```{python}
+# extract the node from the documents...
+field_list = set()
+fields = ['id', 'parent_id', 'name', 'text', 'tag_name', 'data-trip-name', 'data-section-name', 'class', 'path']
+field_list.update(fields)
+page_nodes = {}
+skipchars = ['?','#', 'package-search']
+
+for k,v in data.get('pages',{}).items():
+    # skip anu url that contains the skip phrases
+    if any(c in k for c in skipchars):
+        continue
+        
+    # load up the nodes we like...
+    if isinstance(v, dict):
+        print('\t{}'.format(k))     
+        for n, e in v.get('nodes').items():
+            if isinstance(e, dict):
+                field_list.update([f for f in e])
+
+            key = '{}|{}'.format(k,n)
+            if not key in page_nodes:
+                page_nodes[key] = e
+
+field_list.remove('children')
+
+print(field_list)
+```
+
+```{python}
+import openpyxl
+from openpyxl.styles import Alignment
+from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.utils import get_column_letter
+
+# Add a default style with striped rows and banded columns
+style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
+                       showLastColumn=False, showRowStripes=True, showColumnStripes=True)
+
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = 'TextNodes'
+
+row =1
+column = 1
+# create the titles
+ws.cell(row=row,column=column).value = 'Text'
+column += 1
+ws.cell(row=row,column=column).value = 'Locations'
+
+# Widen the first column to make the text clearer.
+ws.column_dimensions['A'].width = 120
+ws.column_dimensions['B'].width = 120
+
+for k,v in phrases.items():
+    row += 1
+    
+    ws.cell(row=row,column=1).value = k
+    ws.cell(row=row,column=1).alignment = Alignment(wrapText=True)
+    
+    ws.cell(row=row,column=2).value = '\n '.join(v)
+    ws.cell(row=row,column=2).alignment = Alignment(wrapText=True)
+    
+ref = "{}{}:{}{}".format('A', 1, get_column_letter(column), row)
+tab = Table(displayName="TBL_TEXT", ref=ref)
+tab.tableStyleInfo = style
+ws.add_table(tab)
+    
+ws = wb.create_sheet("Elements")
+row = 1
+column = 1
+ws.cell(row=row,column=column).value = 'page'
+
+for f in fields:
+    column +=1
+    ws.cell(row=row,column=column).value = f
+
+for f in field_list:
+    if f in fields:
+        continue    
+    column +=1
+    ws.cell(row=row,column=column).value = f
+    
+
+for k,v in page_nodes.items():
+    if not isinstance(v, dict):
+        continue
+        
+    row += 1
+    column = 1
+    
+    l = k.split('|')
+    ws.cell(row=row,column=column).value = l[0]
+    
+    for f in fields:
+        column += 1
+        ws.cell(row=row,column=column).value = str(v.get(f, ''))
+    
+    for f in field_list:
+        if f in fields:
+            continue
+        column += 1
+        ws.cell(row=row,column=column).value = str(v.get(f, ''))
+
+ref = "{}{}:{}{}".format('A', 1, get_column_letter(column), row)
+tab = Table(displayName="TBL_ELEMENTS", ref=ref)
+tab.tableStyleInfo = style
+ws.add_table(tab)
+
+wb.save('rm_text.xlsx')
+```
+
+```{python}
+
+```

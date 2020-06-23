@@ -1,0 +1,238 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.0
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+```{python}
+try:
+    import pdfminer
+except:
+    !pip install pdfminer
+```
+
+```{python}
+from pdfminer.pdfparser import PDFParser
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfpage import PDFPage
+from pdfminer.pdfpage import PDFTextExtractionNotAllowed
+from pdfminer.pdfinterp import PDFResourceManager
+from pdfminer.pdfinterp import PDFPageInterpreter
+from pdfminer.pdfdevice import PDFDevice
+from pdfminer.layout import LAParams
+from pdfminer.converter import PDFPageAggregator
+import pdfminer
+import os
+```
+
+```{python}
+TEXT_ELEMENTS = [
+    pdfminer.layout.LTTextBox,
+    pdfminer.layout.LTTextBoxHorizontal,
+    pdfminer.layout.LTTextLine,
+    pdfminer.layout.LTTextLineHorizontal
+]
+
+def flatten(lst):
+    """Flattens a list of lists"""
+    return [subelem for elem in lst for subelem in elem]
+
+def extract_characters(element):
+    """
+    Recursively extracts individual characters from 
+    text elements. 
+    """
+    if isinstance(element, pdfminer.layout.LTChar):
+        return [element]
+
+    if any(isinstance(element, i) for i in TEXT_ELEMENTS):
+        return flatten([extract_characters(e) for e in element])
+
+    if isinstance(element, list):
+        return flatten([extract_characters(l) for l in element])
+
+    return []
+```
+
+```{python}
+def parse_obj(lt_objs, depth=0):
+    rows = []
+    depth += 1
+    # loop over the object list
+    for obj in lt_objs:
+        # if it's a textbox, print text and location
+        if isinstance(obj, pdfminer.layout.LTTextBoxHorizontal):
+            x0,y0,x1,y1 = obj.bbox
+            #print("{}|{:.3f}, {:.3f}, {:.3f}, {:.3f}| {}".format("\t"*depth, x0, y0, x1, y1, obj.get_text()))
+            row = {
+                "bbox": obj.bbox,
+                "depth": depth,
+                "type": "textbox",
+                "text": obj.get_text(),
+                "characters": extract_characters(obj)
+            }
+            rows.append(row)
+            
+        # if it's a container, recurse
+        elif isinstance(obj, pdfminer.layout.LTFigure):
+            rows.extend(parse_obj(obj._objs, ))
+    return rows
+```
+
+```{python}
+folders = ["Google Drive", "mortgage", "Carrigan", "Strata"] #["Dropbox", "personal", "accounts", "bank", "downloads"]
+root = "~"
+name = "Depreciation report final-2013-10-11 NLD Consulting" #"statement-5813532321604827-18Jul01" #"ViewEStatementDetail (1)"
+ext = "pdf"
+
+file_path = os.path.expanduser(os.path.join(root, *folders, "{}.{}".format(name, ext)))
+print(file_path)
+```
+
+```{python}
+# Open a PDF file.
+data = {}
+with open(file_path, 'rb') as fp:
+    # Create a PDF parser object associated with the file object.
+    parser = PDFParser(fp)
+
+    # Create a PDF document object that stores the document structure.
+    # Password for initialization as 2nd parameter
+    document = PDFDocument(parser)
+
+    # Check if the document allows text extraction. If not, abort.
+    if not document.is_extractable:
+        raise PDFTextExtractionNotAllowed
+
+    # Create a PDF resource manager object that stores shared resources.
+    rsrcmgr = PDFResourceManager()
+
+    # Create a PDF device object.
+    device = PDFDevice(rsrcmgr)
+
+    # BEGIN LAYOUT ANALYSIS
+    # Set parameters for analysis.
+    laparams = LAParams()
+
+    # Create a PDF page aggregator object.
+    device = PDFPageAggregator(rsrcmgr, laparams=laparams)
+
+    # Create a PDF interpreter object.
+    interpreter = PDFPageInterpreter(rsrcmgr, device)
+
+    # loop over all pages in the document
+    idx = 0
+    for page in PDFPage.create_pages(document):
+        idx += 1
+
+        # read the page into a layout object
+        interpreter.process_page(page)
+        layout = device.get_result()
+
+        # get the page dimensions
+        x0,y0,x1,y1 = layout.bbox
+        page = {
+            "page": idx,
+            "bbox": layout.bbox,
+        }
+
+        # extract text from this object
+        page["objs"] = parse_obj(layout._objs)
+        data[idx] = page
+
+"""
+1
+	|204.14, 730.22299, enviro Gold Visa*_
+	|96.19 , 678.1328900000001, account number:_statement period:_
+	|174.14, 678.1328900000001, 4789 0700 0124 7891_Jul 20 to Aug 20, 2018_
+    
+1
+	|117.12, 624.0 , VANAS11000_4721002 E D 03210
+GLOYN-COX, DAVID
+2717 ELLERSLIE AVE
+BURNABY BC V5B 4R9
+
+	|244.08, 658.08, 03815
+
+	|70.56 , 517.6800000000001, ACCOUNT OWNERS:   GLOYN-COX, DAVID
+STATEMENT PERIOD:
+
+	|159.6 , 517.9200000000001, 06 AUG 2018 to 05 SEP 2018
+
+	|70.56 , 454.08, DAILY BANKING
+ACCOUNT SUMMARY    
+"""
+print(len(data))
+```
+
+```{python}
+for item in data.get(idx, {}).get("objs",[]):
+    for k,v in item.items():        
+        try:
+            print(k, type(v), len(v))
+        except:
+            print(k, " - NONE")
+```
+
+```{python}
+import matplotlib.pyplot as plt
+from matplotlib import patches
+# %matplotlib inline
+
+   
+def draw_rect_bbox(bbox, ax, color):
+    """
+    Draws an unfilled rectable onto ax.
+    """
+    x0,y0,x1,y1 = bbox
+    ax.add_patch( 
+        patches.Rectangle(
+            (x0, y0),
+            x1 - x0,
+            y1 - y0,
+            fill=False,
+            color=color
+        )    
+    )
+    
+def draw_rect(rect, ax, color="black"):
+    draw_rect_bbox(bbox, ax, color)
+```
+
+```{python}
+idx = 93
+
+xmin, ymin, xmax, ymax = data.get(idx,{}).get("bbox")
+size = 6
+
+fig, ax = plt.subplots(figsize = (size, size * (ymax/xmax)))
+
+for o in data.get(idx,{}).get("objs"):
+    t = o.get("type")
+    bbox = o.get("bbox")
+    
+    if t == "textbox":
+        draw_rect(bbox, ax, "red")
+    elif t == "rect":
+        draw_rect(bbox, ax)
+    
+    for c in o.get("characters", []):
+        print(c.bbox, c.text)
+        draw_rect(c.bbox, ax, "green")
+        
+plt.xlim(xmin, xmax)
+plt.ylim(ymin, ymax)
+plt.show()
+```
+
+```{python}
+
+```

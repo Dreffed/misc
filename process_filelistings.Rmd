@@ -1,0 +1,803 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.0
+  kernelspec:
+    display_name: Python [conda env:py37]
+    language: python
+    name: conda-env-py37-py
+---
+
+```{python}
+from utils_files import scan_files
+from utils import load_pickle, save_pickle
+import matplotlib.pyplot as plt
+from pandas import pandas as pd
+import numpy as np
+# %matplotlib inline
+
+import datetime
+import os
+import re
+
+from openpyxl import load_workbook, Workbook
+from openpyxl.worksheet.table import Table, TableStyleInfo
+
+try:
+    from bs4 import BeautifulSoup
+except:
+    !pip install beautifulsoup4
+    
+import requests
+import time
+
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+```
+
+```{python}
+def get_dataframe(items):
+    df=pd.DataFrame(items)
+    return df
+
+def display_info(df):
+    display(df.head())
+    display(df.shape)
+    display(df.describe())
+    display(df.dtypes)
+    
+def export_dataframe(df, filepath="output.xlsx", sheet=None):
+    if sheet is None:
+        sheet = "sheet1"
+        
+    df.to_excel(filepath, sheet_name=sheet, index = False)
+
+```
+
+```{python}
+def get_folderpath(config):
+    """Will return the folder path for a config folder"""
+    name = config.get("name")
+    folders = config.get("folders", [])
+    root = config.get("root", ".")
+    
+    return os.path.expanduser(os.path.join(root, *folders, name))
+    
+```
+
+```{python}
+def process_folders(folders):
+    """This will take the folders list
+    and process the information to provide a folder dictionary"""
+    dict_folder = {}
+    for f in folders:
+        folder_path = f.get("path")
+
+        # folder name analysis
+        if 'depth' not in f:    
+            folders = f.get("path","").split("\\")
+            if len(folders) > 4:
+                folders = folders[2:]
+                f['root'] = folders[0]
+                f['drive'] = folders[1]
+                f['folder'] = folders[-1]
+                f['parent'] = folders[2:-1]
+                f['depth'] = len(folders)
+
+        if folder_path not in dict_folder:
+            dict_folder[folder_path] = f
+    return dict_folder
+
+```
+
+```{python}
+def process_file(f, config):
+    """ Receives a scan file object, and will process using as a file listing
+        obj = {
+            "folder" - folder path
+            "file" - filename with extenstion
+            "ext" - extension
+            "modified" - date system modified
+            "accessed" - date system accessed
+            "size" - size of file in bytes
+        }
+    and return an data object
+        {
+            "folders" - array of folders found
+            "files" - array of files
+        }
+    """
+    file_path = os.path.join(f.get("folder"), f.get("file"))
+    mode = "SKIP"
+    idx = 0
+    current_folder = None
+    current_file = None
+    files = []
+    folders = []
+    print(file_path)
+    
+    with open(file_path, mode="r", encoding='utf16') as infile:
+        for line in infile:
+            idx += 1
+            
+            line = line.rstrip()
+            
+            # Dump the line as hex to see if any issues
+            #print("{}\t=> [{}]\n{}".format(len(line), line , ":".join("{:02x}".format(ord(c)) for c in line)))
+
+            if len(line) == 0:
+                continue
+                
+            for k,r in config.get("regexes",{}).items():
+                m = r.get("re").match(line)
+                if m:
+                    # expects a array of fields named in the regex...
+                    fields = { field: m.group(field) for field in r.get("fields")}
+                    
+                    n_mode = r.get("mode")
+                    if n_mode == "FILE":
+                        if current_file:
+                            files.append(current_file)
+                            
+                        current_file = fields
+                        current_file["path"] = current_folder.get("path")
+                        mode = "FILE"
+                        
+                    elif n_mode == "FILE_MERGE":
+                        current_file["file"] = "{}{}".format(current_file.get("file").rstrip(), fields.get("file").rstrip())
+                        mode = "FILE"
+                        
+                    elif n_mode == "DIR":
+                        if current_folder:
+                            folders.append(current_folder)
+                        current_folder = fields
+                        mode = "DIR"
+                        
+                    elif n_mode == "DIR_MERGE":
+                        current_folder["path"] = "{}{}".format(current_folder.get("path"), fields.get("path"))
+                        mode = "DIR"
+
+                    elif mode == 'SKIP':
+                        if current_file:
+                            files.append(current_file)
+                            current_file = None
+                            
+                        if current_folder:
+                            folders.append(current_folder)
+                            current_folder = None
+                            
+                    # clean the fields...
+                    for fmt_k,fmt in r.get("formats",{}).items():
+                        if current_file:
+                            try:
+                                current_file[fmt_k] = datetime.datetime.strptime(current_file.get(fmt_k), fmt).date()
+                            except:
+                                pass
+                    break
+                    
+        if current_file:
+            files.append(current_file)
+            current_file = None
+                                
+    print("\tFolders:\t{}\n\tFiles\t{}".format(len(folders), len(files)))
+    return {
+        "path": f.get("file"),
+        "folders": folders,
+        "files":files
+    }
+```
+
+```{python}
+def process_files(files, folders):
+    """This will augment the files list for add information"""
+    
+    re_dtstr = re.compile(r"[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}")
+    re_dtstr2 = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+    for f in files:
+        dtstr = f.get("date")
+        #print(dtstr, type(dtstr))
+        if dtstr and isinstance(dtstr, str):
+            m = re_dtstr.match(dtstr)
+            m2  = re_dtstr2.match(dtstr)
+            if m:
+                f['date'] = datetime.datetime.strptime(dtstr, "%m/%d/%Y").date()
+            elif m2:
+                f['date'] = datetime.datetime.strptime(dtstr, "%Y-%m-%d").date()
+
+        # split the extension
+        if "ext" not in f:
+            name, ext = os.path.splitext(f.get("file"))
+            f["ext"] = ext
+            f['name'] = name
+
+        # check the folder path data
+        folder_path = f.get("path")
+        if folder_path in folders and 'depth' not in f:
+            fldr = folders.get(folder_path, {})
+            for fld in ["root", "drive", "folder", "parent", "depth"]:
+                f[fld] = fldr.get(fld)
+
+    
+```
+
+```{python}
+def get_extensions(files):
+    ext_dict = {}
+    for f in files:
+        ext = f.get("ext").lower()
+        if ext not in ext_dict:
+            ext_dict[ext] = {"count": 0}
+        ext_dict[ext]["count"] += 1
+
+    return ext_dict
+```
+
+```{python}
+def pivot_extensions(ext_dict):
+    data = []
+    for k,v in ext_dict.items():
+        e = {
+            "ext":k,
+            "count": v.get("count",0)
+        }
+        data.append(e)
+    return data
+
+```
+
+```{python}
+# load the page to BS
+def get_soup(url):
+    page = requests.get(url)
+
+    # Create a BeautifulSoup object
+    soup = BeautifulSoup(page.text, 'html.parser')
+    return soup
+
+```
+
+```{python}
+def load_extensions(config):
+    tbl_config = config.get("sources",{}).get("ext reference", {})
+    file_ref = tbl_config.get("file")
+    if not file_ref:
+        print("unable to load file ref")
+        return data
+        
+    file_config = config.get("files", {}).get(file_ref, {})
+        
+    if not file_config:
+        print("unable to load file config")
+        return data
+    
+    file_path = get_folderpath(file_config)
+    print("Loading ... {}".format(file_path))
+    
+    # now load in the speadsheet...
+    wb = load_workbook(filename = file_path)
+    ws = wb[tbl_config.get("sheet")]
+    
+    # load into a ROWS list
+    rows = []
+    for r in range(2, ws.max_row + 1):
+        row = {}
+        for idx, f in enumerate(tbl_config.get("fields", [])):
+            key = f.get("name")
+            value = ws.cell(row = r, column = idx + 1).value
+            row[key] = value
+        rows.append(row)
+
+    wb.close()
+    
+    print("loaded {} rows".format(len(rows)))
+    return rows
+```
+
+```{python}
+def fetch_ext(config):
+    base_url = config.get("urls",{}).get("extinfo",'https://fileinfo.com/extension/{}')
+    idx = 0
+    rows = []
+
+    for e in config.get("lists",{}).get("extensions",[]):
+        idx += 1
+        soup = get_soup(base_url.format(e))
+
+        print("Fetching {}".format(e))
+
+        # process the article
+        article = soup.find('article')
+        if not article:
+            continue
+
+        sections = article.find_all('section')
+        sidx = 0
+        for s in sections:
+            row = {}
+            sidx += 1
+            row['id'] = idx
+            row['sidx'] = sidx
+            row['ext'] = e
+
+            # title
+            h = s.find('h2')
+            row['name'] = h.text.strip()
+            if len(sections) > 1:
+                row['name'] = row['name'].replace('File Type {}'.format(sidx), '')
+            else:
+                row['name'] = row['name'].replace('File Type', '')
+
+            # info text
+            infos = s.findAll("div", {"class": "infoBox"})
+            if len(infos) > 0:
+                row['descr'] = infos[0].text.strip()
+
+            # get the developer / category / format fields
+            tbl = s.find('table', {"class": "headerInfo"})
+            if tbl:
+                trs = tbl.find_all('tr')
+                for tr in trs:
+                    tds = tr.find_all('td')
+                    if len(tds) >= 2:
+                        key = tds[0].text.lower()
+                        value = tds[1].text
+                        row[key] = value.strip()
+
+            rows.append(row)
+
+        # sleep and wait to not over load...
+        time.sleep(2)  
+        
+    return rows
+```
+
+```{python}
+def process(config):
+    """This will initiate the scan and return a list of files
+    and folders from the dir scans"""
+    
+    pickle_path = get_folderpath(config.get("files", {}).get("pickle", {}))
+    print(pickle_path)
+    
+    data = {}
+    
+    if os.path.exists(pickle_path):
+        data = load_pickle(pickle_name=pickle_path)
+        
+    if not data: 
+        files = []
+        folders = []
+        
+        folder_path = get_folderpath(config.get("input", {}))
+        print(folder_path)
+
+        for f in scan_files(folder_path):
+            data = process_file(f, config)
+            # add the files to the dataframe
+            files.extend(data.get("files",[]))
+            folders.extend(data.get("folders", []))
+        
+        dict_folders = process_folders(folders)
+        process_files(files, dict_folders)
+        dict_exts = get_extensions(files)
+    
+        data = {
+            "files": files,
+            "folders": dict_folders,
+            "exts": dict_exts
+        }
+        save_pickle(data=data, pickle_name=pickle_path)
+    return data
+    
+```
+
+# config and run
+This will laod the confif data
+Then call process files,
+* process files will
+** load the cached files
+** build a dict of folders
+** build a list of files
+** build a dict of extentions
+
+```{python}
+config = {
+    "input":{
+        "type": "input_folder",
+        "name": "2020-04-27",
+        "folders": ["purge"],
+        "root":"c:\\",
+    },
+    "regexes": {
+        "SCAN": {
+            "mode": "SCAN",
+            "re": re.compile(r"Mode.*"),
+            "fields": [],
+        },
+        "DIR": {
+            "mode":"DIR",
+            "re": re.compile(r"[ ]{4}Directory: (?P<path>.*)"),
+            "fields": ["path"],
+        },
+        "FILE.2": {
+            "mode":"FILE_MERGE",
+            "re": re.compile(r"[ ]{45}(?P<file>.*)"),
+            "fields": ["file"],
+        },
+        "FILE.d": {
+            "mode":"FILE",
+            "re": re.compile(r"[ar-]{5,10}[ ]+(?P<date>[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})[ ]+(?P<time>[0-9]{1,2}:[0-9]{2} [AP]M)[ ]+(?P<size>[0-9]+) (?P<file>.*)"),
+            "fields": ["date", "time", "size", "file"],
+            "formats": {
+                "date":"%d/%m/%Y"
+            }
+        },
+        "FILE.s": {
+            "mode":"FILE",
+            "re": re.compile(r"[ar-]{5,10}[ ]+(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})[ ]+(?P<time>[0-9]{1,2}:[0-9]{2} [AP]M)[ ]+(?P<size>[0-9]+) (?P<file>.*)"),
+            "fields": ["date", "time", "size", "file"],
+            "formats": {
+                "date":"%Y-%m-%d"
+            }
+        },
+        "FILE.x": {
+            "mode":"FILE",
+            "re": re.compile(r"[ar-]{5,10}[ ]+(?P<date>[0-9/-]{8,10})[ ]+(?P<time>[0-9]{1,2}:[0-9]{2} [AP]M)[ ]+(?P<size>[0-9]+) (?P<file>.*)"),
+            "fields": ["date", "time", "size", "file"],
+        },
+        "DIR.2": {
+            "mode":"DIR_MERGE",
+            "re": re.compile(r"[ ]{4}(?P<path>.*)"),
+            "fields": ["path"],
+        },
+    },
+    "files":{
+        "master":{
+            "type": "excel",
+            "name": "DeliverableNotesDocManagement.xlsx",
+            "title": "Document Management Notes",
+            "root": "~",
+            "folders": ["Google Drive (david.gloyn-cox@thoughtswinsystems.com)", "BCFSA"]
+        },
+        "export":{
+            "type": "excel",
+            "name": "FileStats.xlsx",
+            "title": "File Statistics - Analysis",
+            "root": "~",
+            "folders": ["Google Drive (david.gloyn-cox@thoughtswinsystems.com)", "BCFSA"]            
+        },
+        "pickle":{
+            "type": "pickle",
+            "name": "FileStats.pickle",
+            "root": ".",
+            "folders": []                        
+        }
+    },
+    "sources":{
+        "ext_analysis":{
+            "file":"export",
+            "sheet": "Extensions",
+        },
+        "ext reference":{
+            "file":"master",
+            "sheet": "Extensions",
+            "range": "LU_EXT",
+            "fields": [
+                {
+                    "column": "A",
+                    "name": "id"
+                },
+                {
+                    "column": "B",
+                    "name": "sidx"
+                },
+                {
+                    "column": "C",
+                    "name": "ext"
+                },
+                {
+                    "column": "D",
+                    "name": "name"
+                },
+                {
+                    "column": "E",
+                    "name": "category"
+                },
+                {
+                    "column": "F",
+                    "name": "developer"
+                },
+                {
+                    "column": "G",
+                    "name": "format"
+                },
+                {
+                    "column": "H",
+                    "name": "descr"
+                },
+                {
+                    "column": "I",
+                    "name": "popularity"
+                },
+                {
+                    "column": "J",
+                    "name": "BCFSA Group"
+                },
+                {
+                    "column": "K",
+                    "name": "BCFSA Category"
+                },
+            ]
+        }
+    },
+    "urls":{
+        "extinfo": "https://fileinfo.com/extension/{}"
+    },
+    "lists":{
+        "extensions":[
+            '123','a','abc','accdb','adi','ai','ams','app','application','apr','asax','ascx','asp','aspx',
+            'bak','bas','bat','bck','bf','bmp','bn',
+            'ca','cab','cache','cer','cfc','cfm','ch3','ch5','ch7','ch8','ch9','cha','checksum','chm','chw','cls','cmd','compiled','conf','config','crdownload','css','cssggg','csv','ctl','cur',
+            'd0c','d123','dat','data','deploy','dft','dll','dnl','doc','docm','docx','dot','dotx','dpc','dqy','dr4','ds_store','dss','dtsx','dwg',
+            'eot','eps','est','exclude','exe',
+            'fax','fla','frm','frx',
+            'gif','go',
+            'htm','html',
+            'ico','ics','id','idml','imr','indd','ini','ins',
+            'jar','jnt','jpeg','jpg','js','json','judgements',
+            'key','kyc_policy',
+            'lab','lbl','lbx','less','let','lic','licx','lnk','log','lst','ltr',
+            'm4a','manifest','map','master','md','mdb','mdi','mem','mer','mht','mov','mp3','mp4','mpp','mpt','msg','msu','myapp',
+            'ndl','new','not','nsf',
+            'obj','oft','old','old1','one','onetoc2','otf',
+            'p7b','partial','pdb','pdf','php','pm','png','potx','ppsx','ppt','pptm','pptx','properties','ps','ps1','psd','pst','pub','py',
+            'qdi',
+            'rdl','rdlc','rdp','rds','reg','resources','resx','rsd','rtf',
+            'sbf','scc','scss','sdb','sdw','settings','shs','skin','sl','slf','sll','sln','snk','sql','svg','swf',
+            'targets','tem','thmx','tif','tiff','tmp','tsk','ttf','twbx','two','txt',
+            'udf','url','user',
+            'vb','vbhtml','vbp','vbproj','vbs','vbw','vcf','vsd','vsdx','vspscc','vssscc','vssx',
+            'wav','wbk','wdp','webp','website','wmf','wmv','woff','woff2','wpd',
+            'xlk','xls','xlsb','xlsm','xlsx','xltm','xltx','xlw','xml','xmlcee','xps','xsc','xsd','xss',
+            'yaml','yml',
+            'zip','zipx'
+        ]
+    }
+}
+```
+
+```{python}
+data = process(config)
+
+```
+
+```{python}
+# show the results...
+print("Loaded...\n\t{} files\n\t{} folders\n\t{} extensions".format(len(data.get("files",[])),
+                                                                        len(data.get("folders",{})),
+                                                                        len(data.get("exts",{}))))
+
+```
+
+```{python}
+#check folders have corect value...
+idx = 0
+for k,v in data.get("folders",{}).items():
+    idx +=1
+    print(k)
+    print(v)
+    
+    if idx > 4:
+        break
+    
+```
+
+```{python}
+# dump the folder list to a file...
+rows = []
+for k in data.get("folders",{}):
+    rows.append(k)
+    
+df_fldr_list = get_dataframe(rows)
+display_info(df_fldr_list)
+export_dataframe(df_fldr_list, filepath="folder_list.xlsx", sheet="folders")
+```
+
+# now to analyze and process the data...
+the data is left in memory as much as possible
+
+
+```{python}
+# load the extension reference file...
+rows_ext = load_extensions(config)
+if not rows_ext:
+    rows_ext = fetch_ext(config)
+    
+print("Loaded {} extensions.".format(len(rows_ext)))
+
+```
+
+```{python}
+# pivot these rows
+dict_ext_lu = {}
+for r in rows_ext:
+    row = {}
+    ext = r.get("ext")
+    for f in ["name", "category", "developer", "format", "descr", "popularity", "BCFSA Group", "BCFSA Category"]:
+        row[f] = r.get(f)
+    
+    row["count"] = data.get("exts", {}).get(".{}".format(ext), {}).get("count",0)
+        
+    if ext not in dict_ext_lu:
+        dict_ext_lu[ext] = row
+    
+print(len(dict_ext_lu))
+```
+
+```{python}
+dict_ext_lu.get('pdf',{})
+```
+
+```{python}
+# pivot to rows
+rows = []
+for k,v in dict_ext_lu.items():
+    row = v
+    row['ext'] = k
+    rows.append(row)
+    
+df_ext = get_dataframe(rows)
+display_info(df_ext)
+```
+
+```{python}
+export_dataframe(df_ext, "ext_analysis.xlsx", sheet="extensions")
+```
+
+```{python}
+#df_ext.plot(x ='BCFSA Group', y='count', kind = 'bar')
+
+fig, ax = plt.subplots(figsize=(15,7))
+ax.set_yscale('log')
+
+df_ext.groupby(['BCFSA Group', 'BCFSA Category']).sum()['count'].plot(ax=ax, kind = 'bar')
+
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(15,7))
+ax.set_yscale('log')
+df_ext.groupby(['category']).sum()['count'].plot(ax=ax, kind = 'bar')
+
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(15,7))
+ax.set_yscale('log')
+df_ext.groupby(['format']).sum()['count'].plot(ax=ax, kind = 'bar')
+```
+
+# break out the folders
+* Folder by file extension
+    * Size
+    * Count
+
+
+```{python}
+"""
+'date': datetime.date(2019, 10, 24), 
+'time': '3:10 PM', 
+
+'size': '1374124', 
+
+'file': 'Accounting-BCFSA.pdf', 
+'ext': '.pdf', 
+'name': 'Accounting-BCFSA', 
+
+'path': '\\\\haldirr.bcfsa.ca\\adserv$\\Acct', 
+
+'root': 'haldirr.bcfsa.ca', 
+'drive': 'adserv$', 
+'folder': 'Acct', 
+'parent': [], 
+
+'depth': 3}
+"""
+# first build a dict of folders
+folders = {}
+for item in data.get("files", []):
+    path = item.get("path")
+    if path not in folders:
+        row = {
+            "root": item.get("root"),
+            "drive": item.get("drive"),
+            "folder": item.get("folder"),
+            "parent": item.get("parent",[]),
+
+            "exts": {},
+            "dates": {},
+            "files": [],
+            
+            "count": 0,
+            "size": 0,
+        }
+        folders[path] = row
+        
+    # update the details...
+    ext = item.get("ext", "").replace(".","")
+    if ext not in folders.get(path, {}).get("exts", {}):
+        folders[path]["exts"][ext] = 0
+    folders[path]["exts"][ext] += 1
+    
+    datestr = item.get("date").strftime("%Y-%m-%d")
+    if datestr not in folders.get(path, {}).get("dates", {}):
+        folders[path]["dates"][datestr] = 0
+    folders[path]["dates"][datestr] += 1
+    
+    # add an entry for the files section
+    size = int(item.get("size", 0))
+    folders[path]["files"].append({
+        "ext": ext,
+        "date": datestr,
+        "size": size
+    })
+    
+    # update the stats
+    folders[path]["count"] += 1
+    folders[path]["size"] += size
+    
+    #print(folders[path])
+    # data.get("exts", {}).get(".{}".format(ext), {}).get("count",0)
+print("loaded {} folders".format(len(folders)))
+```
+
+```{python}
+path = "\\\\haldirr.bcfsa.ca\\adserv$\\Acct"
+print(folders.get(path))
+```
+
+```{python}
+folder_rows = []
+fields = ["root","drive","folder","size","count"]
+for k,v in folders.items():
+    for f in fields:
+        row[f] = v.get(f)
+    try:   
+        row['parent'] = "\\".join(v.get('parent', []))
+    except:
+        row['parent'] = None
+        
+    row["path"] = k
+    try:
+        for idx, fldr in enumerate(v.get("parent",[])):
+            row["F{:03}".format(idx)] = fldr
+    except:
+        row["F000"] = k
+        
+    folder_rows.append(row)
+
+```
+
+```{python}
+print(len(folder_rows))
+```
+
+```{python}
+folder_rows[0]
+```
+
+```{python}
+df_fldrs = get_dataframe(folder_rows)
+display_info(df_fldrs)
+```
+
+```{python}
+
+```
