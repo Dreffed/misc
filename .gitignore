@@ -4,8 +4,13 @@
 *.ini
 *.csv
 *.log
-__pycache__/*.*
 *.pyc
 *.txt
-tempCodeRunnerFile.py
 *.xlsx
+*.jpg
+*.png
+*.ipynb
+__pycache__/*.*
+.ipynb_checkpoints/*.*
+node_modules/*.*
+tempCodeRunnerFile.py
