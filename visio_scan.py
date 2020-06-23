@@ -1,5 +1,4 @@
 from getFiles import scanFiles, get_info, get_pickle_data, save_pickle_data, make_hash
-import sys
 import win32com.client
 import os
 import json
@@ -150,78 +149,75 @@ def process_visiofile(filepath):
 
     return dwg_file
 
-config_path = 'visio_settings.json'
-pickle_file = 'visio_data.pickle'
-logger.debug('Config: {}'.format(config_path))
-logger.debug('Pickle: {}'.format(pickle_file))
+def main():
+    config_path = 'visio_settings.json'
+    pickle_file = 'visio_data.pickle'
+    logger.debug('Config: {}'.format(config_path))
+    logger.debug('Pickle: {}'.format(pickle_file))
 
-cnf_data = load_config(config_path)
-logger.debug(cnf_data)
+    cnf_data = load_config(config_path)
+    logger.debug(cnf_data)
 
-path = cnf_data['folders']
-filepath = os.path.join(*path)
-filepath = os.path.expanduser(filepath)
-logger.info(filepath)
+    path = cnf_data['folders']
+    filepath = os.path.join(*path)
+    filepath = os.path.expanduser(filepath)
+    logger.info(filepath)
 
-if not os.path.exists(filepath):
-    logger.critical('Missing Path {}'.format(filepath))
-    raise 'missing path'
+    if not os.path.exists(filepath):
+        logger.critical('Missing Path {}'.format(filepath))
+        raise 'missing path'
 
-data = get_pickle_data(pickle_file)
-if data == {}:
-    data['folders'] = path
-    data['filter'] = cnf_data['filter']
-    data['files'] = []
-    data['hashes'] = {}
+    data = get_pickle_data(pickle_file)
+    if data == {}:
+        data['folders'] = path
+        data['filter'] = cnf_data['filter']
+        data['files'] = []
+        data['hashes'] = {}
 
-for f in scanFiles(filepath):
-    filename, file_extension = os.path.splitext(f['file']) 
+    for f in scanFiles(filepath):
+        filename, file_extension = os.path.splitext(f['file']) 
 
-    if file_extension == cnf_data['filter']:
-        logger.info('Scanning filename: {}{}'.format(filename, file_extension))
+        if file_extension == cnf_data['filter']:
+            logger.info('Scanning filename: {}{}'.format(filename, file_extension))
 
-        f_path = os.path.normpath(os.path.join(f['folder'], f['file']))
-        file_hash = make_hash(f_path)
-        file_hash_sha = file_hash['SHA1']
+            f_path = os.path.normpath(os.path.join(f['folder'], f['file']))
+            file_hash = make_hash(f_path)
+            file_hash_sha = file_hash['SHA1']
 
-        if not data.get('hashes'):
-            data['hashes'] = {}
+            if not file_hash_sha in data['hashes']:
+                data['hashes'][file_hash_sha] = []
 
-        if not file_hash_sha in data['hashes']:
-            data['hashes'][file_hash_sha] = []
+            if not f_path in data['hashes'][file_hash_sha]:
+                logger.info('\tadding hash {}'.format(file_hash_sha))
+                data['hashes'][file_hash_sha].append(f_path)
+            
+            scan_file = True
+            scan_idx = -1
+            for s in data['files']:
+                scan_idx += 1
+                s_path = os.path.normpath(os.path.join(s['folder'], s['file']))
+                if f_path == s_path:
+                    if s['hash']['SHA1'] == file_hash_sha:
+                        # file has been scanned and has not changed by hash
+                        logger.info('\tfile already scanned!')
+                        scan_file = False
+                        
+                    else:
+                        logging.info('\tFile is out of date, updating!')
+                        if not 'archives' in data:
+                            data['archives'] = []
+                        data['archives'].append(s)
+                        del data['files'][scan_idx]
 
-        if not f_path in data['hashes'][file_hash_sha]:
-            logger.info('\tadding hash {}'.format(file_hash_sha))
-            data['hashes'][file_hash_sha].append(f_path)
-        
-        scan_file = True
-        scan_idx = -1
-        for s in data['files']:
-            scan_idx += 1
-            s_path = os.path.normpath(os.path.join(s['folder'], s['file']))
-            if f_path == s_path:
-                if s['hash']['SHA1'] == file_hash_sha:
-                    # file has been scanned and has not changed by hash
-                    logger.info('\tfile already scanned!')
-                    scan_file = False
-                    
-                else:
-                    logging.info('\tFile is out of date, updating!')
-                    if not 'archives' in data:
-                        data['archives'] = []
-                    data['archives'].append(s)
-                    del data['files'][scan_idx]
+                    # we found the file... so no need to search anymore
+                    break
+            
+            if not scan_file:
+                continue
 
-                # we found the file... so no need to search anymore
-                break
-        
-        if not scan_file:
-            continue
+            dwg_file = process_visiofile(f_path)
 
-        dwg_file = process_visiofile(f_path)
-
-        # add the file details...
-        try:
+            # add the file details...
             dwg_file['folder'] = f['folder']
             dwg_file['file'] = f['file']
             dwg_file['modified'] = parse(f['modified'])
@@ -229,10 +225,10 @@ for f in scanFiles(filepath):
             dwg_file['size'] = f['size']
             dwg_file['hash'] = file_hash
             dwg_file['GUID'] = uuid.uuid4()
-        except Exception as ex:
-            dwg_file['error'] = ex
-            logger.error(ex)
-        finally:
+
             data['files'].append(dwg_file)        
 
-save_pickle_data(data, pickle_file)
+    save_pickle_data(data, pickle_file)
+
+if __name__ == "__main__":
+    main()

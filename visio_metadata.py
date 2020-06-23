@@ -1,15 +1,21 @@
 from getFiles import scanFiles, get_info, get_pickle_data, save_pickle_data
-import sys
 import os
 import json
 import logging
 from logging.config import fileConfig
 import csv
 import uuid
+<<<<<<< HEAD
 #import node_models as nm
 from utils import load_settings, save_settings, read_file, export_csv, print_items, display_object
 #from neomodel import db, config, StructuredRel, StructuredNode, StringProperty, IntegerProperty, \
 #    UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist
+=======
+import node_models as nm
+from utils import load_json, save_json, read_file, export_csv
+from neomodel import db, config, StructuredRel, StructuredNode, StringProperty, IntegerProperty, \
+    UniqueIdProperty, UniqueProperty, RelationshipTo, RelationshipFrom, DoesNotExist
+>>>>>>> 280c838948e17c71f4725a758b0f92c92741577f
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
@@ -17,6 +23,7 @@ logger = logging.getLogger(__name__)
 def connect():
     neo_connect_file = "neo4j_settings.json"
 
+<<<<<<< HEAD
     settings = load_settings(neo_connect_file)
     uname = settings['neo4j']['user']
     token = settings['neo4j']['token']
@@ -24,6 +31,11 @@ def connect():
     print(db_url)
     config.DATABASE_URL = db_url
     db.set_connection(db_url)
+=======
+settings = load_json(neo_connect_file)
+config.DATABASE_URL = settings['neo4j']['database_url']
+db.set_connection(settings['neo4j']['database_url'])
+>>>>>>> 280c838948e17c71f4725a758b0f92c92741577f
 
 def summarize_data(data):
     '''This will scan the log file and produce stats in the data found'''
@@ -62,10 +74,10 @@ def summarize_data(data):
             logger.info('{}'.format(file_name))
 
             file_index += 1
-            #try:
-            #    file_node = nm.FileNode.nodes.get(id=file_guid)
-            #except DoesNotExist as e:
-            #    file_node = nm.FileNode(id=file_guid, name=file_name, path=file_folder, wbs=file_wbs).save()
+            try:
+                file_node = nm.FileNode.nodes.get(id=file_guid)
+            except DoesNotExist:
+                file_node = nm.FileNode(id=file_guid, name=file_name, path=file_folder, wbs=file_wbs).save()
 
             relationships[file_wbs]['guid'] = file_guid
 
@@ -88,10 +100,10 @@ def summarize_data(data):
                 page_data['name'] = page_name
                 page_data['guid'] = page_guid
 
-                #try:
-                #    page_node = nm.PageNode.nodes.get(id=page_guid)
-                #except DoesNotExist as e:
-                #    page_node = nm.PageNode(id=page_guid, name=page_name, wbs=page_wbs).save()
+                try:
+                    page_node = nm.PageNode.nodes.get(id=page_guid)
+                except DoesNotExist:
+                    page_node = nm.PageNode(id=page_guid, name=page_name, wbs=page_wbs).save()
                     
                 if 'objects' in dwg_page:
                     pool = {}

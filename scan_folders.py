@@ -8,8 +8,8 @@ fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
 
 files_found = 0
-pickleName = "{}.pickle".format("scan_files")
-data = get_pickle_data(pickleName=pickleName)
+picklename = "{}.pickle".format("scan_files")
+data = get_pickle_data(picklename=picklename)
 
 if not data.get("extension"):
     data_ext = defaultdict(list)
@@ -27,8 +27,8 @@ if not data.get("extension"):
     data['extension'] = data_ext
     data['files'] = data_files
 
-    save_pickle_data(data=data, pickleName=pickleName)
-    logger.info("Data Saved:{}".format(pickleName))
+    save_pickle_data(data=data, picklename=picklename)
+    logger.info("Data Saved:{}".format(picklename))
 
 # display infor about the files...
 for k,v in data.get("extension", {}).items():
