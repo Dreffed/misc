@@ -106,7 +106,7 @@ def scan_folders(folder, root_name, hash_list = None):
             # do we have the current file here too
             found = False
 
-            for f in file_details.get(filename, {}).get("files",[]):
+            for f in file_details.get(filename, []):
                 # compare file data....
                 if f.get("folder") == file_item.get("folder") \
                     and f.get("file") == file_item.get("file"):
@@ -239,8 +239,8 @@ if __name__ == '__main__':
     save_pickle(data=data, picklename=picklename)
 
     # upload the pickles to the one drive....
-    archive_folders = [r'C:\\', 'Users', 'dgloyncox', 'OneDrive - Great Canadian Railtour Co', 'Jupyter_NB', 'output']
-    archive_path = os.path.join(*archive_folders)
+    archive_folders = ['~', 'OneDrive - Great Canadian Railtour Co', 'Jupyter_NB', 'output']
+    archive_path = os.path.expanduser(os.path.join(*archive_folders))
 
     import socket
     import shutil
