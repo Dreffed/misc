@@ -6,13 +6,86 @@ import pickle
 import hashlib
 import json
 from datetime import datetime
-from utils import load_pickle, save_pickle
-from utils_scanfiles import scantree
+from os import scandir
 import logging
 from logging.config import fileConfig
 
 fileConfig('logging_config.ini')
 logger = logging.getLogger(__name__)
+
+def load_pickle(picklename):
+    data = {}
+    if os.path.exists(picklename):
+        logger.info('Loading Saved Data... [%s]' % picklename)
+        with open(picklename, 'rb') as handle:
+            data = pickle.load(handle)
+    return data
+
+def save_pickle(data, picklename):
+    logger.info('Saving Data... [%s]' % picklename)
+    with open(picklename, 'wb') as handle:
+        pickle.dump(data, handle)
+
+def export_file(copy_files, archive_path):
+    import socket
+    import shutil
+    hostname = socket.gethostname()
+
+    for filename in copy_files:
+        name, ext = os.path.splitext(filename)
+        newname = '{}.{}.{}'.format(name, hostname, ext)
+        dstpath = os.path.join(archive_path, newname)
+        i = 0
+        while True:
+            if not os.path.exists(dstpath):
+                break
+
+            i+=1
+            newname = '{}.{}.({}).{}'.format(name, hostname, i, ext)
+            dstpath = os.path.join(archive_path, newname)
+
+        shutil.copy(filename, dstpath)
+
+def get_stat(entry):
+    time_format = "%Y-%m-%d %H:%M:%S"
+
+    f = {
+        "file":entry.name,
+        "folder":os.path.split(os.path.abspath(entry.path))[0],
+        "inode":entry.inode()
+    }
+    
+    # get the stats
+    # os.stat_result(
+    #	st_mode=33206, 
+    #	st_ino=0, 
+    #	st_dev=0, 
+    #	st_nlink=0, 
+    #	st_uid=0, 
+    #	st_gid=0, 
+    #	st_size=92702, 
+    #	st_atime=1543724526, 
+    #	st_mtime=1523310306, 
+    #	st_ctime=1523310474)
+    f["accessed"] = time.strftime(time_format,time.localtime(entry.stat().st_atime))
+    f["modified"] = time.strftime(time_format,time.localtime(entry.stat().st_mtime))
+    f["created"] = time.strftime(time_format,time.localtime(entry.stat().st_ctime))
+    f["size"] = entry.stat().st_size
+    f["mode"] = entry.stat().st_mode
+    return f
+    
+def scantree(path):
+    """Recursively yield DirEntry objects for given directory."""
+    
+    for entry in scandir(path):
+        try:
+            if entry.is_dir(follow_symlinks=False):
+                yield from scantree(entry.path)  # see below for Python 2.x
+            else:
+                yield get_stat(entry)
+        
+        except Exception as ex:
+            logger.error(ex)
 
 def get_info(filepath):
     """ Scans the file and returns the access, mod and create time in a YYYY-MM-DD HH:MM:SS format"""
@@ -241,26 +314,6 @@ if __name__ == '__main__':
     # upload the pickles to the one drive....
     archive_folders = ['~', 'OneDrive - Great Canadian Railtour Co', 'Jupyter_NB', 'output']
     archive_path = os.path.expanduser(os.path.join(*archive_folders))
-
-    import socket
-    import shutil
-    hostname = socket.gethostname()
-
-    for filename in copy_files:
-        name, ext = os.path.splitext(filename)
-        newname = '{}.{}.{}'.format(name, hostname, ext)
-        dstpath = os.path.join(archive_path, newname)
-        i = 0
-        while True:
-            if not os.path.exists(dstpath):
-                break
-
-            i+=1
-            newname = '{}.{}.({}).{}'.format(name, hostname, i, ext)
-            dstpath = os.path.join(archive_path, newname)
-
-        shutil.copy(filename, dstpath)
-
 
 
             
