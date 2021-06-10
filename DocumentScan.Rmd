@@ -27,13 +27,13 @@ import os
 locations = [
     {
         "name": "Downloads",
-        "folders": ["Downloads"],
-        "root":"~"
+        "folders": ["users", "David", "Downloads"],
+        "root":"D:\\"
     },
     {
         "name": "BCFSA",
-        "folders":["Google Drive (david.gloyn-cox@thoughtswinsystems.com)","BCFSA"],
-        "root":"~"
+        "folders":["users", "David", "Google", "thoughtswin", "BCFSA"],
+        "root":"D:\\"
     }
 ]
 

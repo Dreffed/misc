@@ -5,12 +5,16 @@ jupyter:
       extension: .Rmd
       format_name: rmarkdown
       format_version: '1.2'
-      jupytext_version: 1.5.1
+      jupytext_version: 1.11.2
   kernelspec:
     display_name: Python 3
     language: python
     name: python3
 ---
+
+```{python active="", eval=FALSE}
+!pip install pdfminer
+```
 
 ```{python}
 # warning: pdfminer uses python 2
@@ -19,6 +23,8 @@ from __future__ import division
 
 ```{python}
 example_file = r"C:\Users\David Gloyn-Cox\Dropbox\personal\accounts\bank\downloads\statement-5813532321604827-18Jul01.pdf"
+example_file = r"D:\users\David\Dropbox\personal\accounts\2021\RBC\00750XXX9146-2021Feb09-2021Mar09.pdf"
+example_file = r"D:\users\David\Dropbox\personal\accounts\2021\TD\2021-01-06_TD_BUSINESS_TRAVEL_VISA_7439.pdf"
 ```
 
 ```{python}
@@ -67,7 +73,7 @@ len(page_layouts)
 ```
 
 ```{python}
-objects_on_page = set(type(o) for o in page_layouts[3])
+objects_on_page = set(type(o) for o in page_layouts[0])
 objects_on_page
 ```
 
@@ -104,7 +110,7 @@ def extract_characters(element):
 ```
 
 ```{python}
-current_page = page_layouts[4]
+current_page = page_layouts[0]
 
 texts = []
 rects = []
@@ -118,6 +124,10 @@ for e in current_page:
 
 # sort them into 
 characters = extract_characters(texts)
+if isinstance(characters, list):
+    print("characters: {}".format(len(characters)))
+else:
+    print(type(characters))
 ```
 
 ```{python}

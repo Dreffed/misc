@@ -10,7 +10,11 @@ from os import scandir
 import logging
 from logging.config import fileConfig
 
-fileConfig('logging_config.ini')
+try:
+    fileConfig('logging_config.ini')
+except:
+    print("No Logging config file found")
+
 logger = logging.getLogger(__name__)
 
 def load_pickle(picklename):
@@ -25,6 +29,21 @@ def save_pickle(data, picklename):
     logger.info('Saving Data... [%s]' % picklename)
     with open(picklename, 'wb') as handle:
         pickle.dump(data, handle)
+
+def open_json(file_name=r"settings.json"):
+    # Load credentials from json file
+    data = None
+    if os.path.exists(file_name):
+        logger.info('Loading Saved Data... [%s]' % file_name)
+        with open(file_name, "r") as file:  
+            data = json.load(file)
+    return data
+
+def save_json(data = {}, file_name=r"settings.json"):
+    # Save the credentials object to file
+    logger.info('Saving Data... [%s]' % file_name)
+    with open(file_name, "w") as file:  
+        file.write(json.dumps(data, indent = 4)) 
 
 def export_file(copy_files, archive_path):
     import socket
@@ -158,13 +177,18 @@ def make_hash(file_path):
 
     return hashes
 
-def scan_folders(folder, root_name, hash_list = None):
+def scan_folders(folder, hash_list = None):
     """ will take the supplied path, use scanFiles to get a yeild of files
     It will check to see if the file is already scanned, if it is not or 
     it is updated it will get the hash
+        folder is of the form:
+            {
+                "name": "...", 
+                "root": "...", 
+                "folders": ["...".."...",...]},
     """
     data = {}
-    picklename = '{}.pickle'.format(root_name)
+    picklename = '{}.pickle'.format(folder.get("name","files"))
     data = load_pickle(picklename=picklename)
 
     file_details = data.get('biblo',{})
@@ -172,7 +196,10 @@ def scan_folders(folder, root_name, hash_list = None):
 
     # get the file list, check if files have been updated...
     new_file_list = []
-    for i, file_item in enumerate(scantree(folder)):
+    folder_path = os.path.expanduser(os.path.join(folder.get("root"), *folder.get("folders",[])))
+    logger.debug(folder_path)
+
+    for i, file_item in enumerate(scantree(folder_path)):
         # check if we have the file?
         filename = file_item.get("file")
         if filename in file_details:
@@ -202,7 +229,7 @@ def scan_folders(folder, root_name, hash_list = None):
             new_file_list.append(file_item)    
 
         if i % 1000 == 0:
-            logger.debug("Scanned {}: Found: {} new / updated files".format(i, len(new_file_list)))
+            logger.info("Scanned {}: Found: {} new / updated files".format(i, len(new_file_list)))
 
     # add the scan with the new files...
     if len(new_file_list) > 0:
@@ -219,11 +246,11 @@ def scan_folders(folder, root_name, hash_list = None):
     save_pickle(data=data, picklename=picklename)
     return data
 
-def update_hashes(data, root_name, hash_list=None):
+def update_hashes(data, name, hash_list=None):
     """This is scan the biblo and generate the hashes if
     there are missing and if the ext is in the hash_list"""
 
-    picklename = '{}.pickle'.format(root_name)
+    picklename = '{}.pickle'.format(name)
     
     duplicates = 0
     completed = 0
@@ -240,7 +267,7 @@ def update_hashes(data, root_name, hash_list=None):
     for k, v in  data.get('biblo',{}).items():
         _, ext = os.path.splitext(k)
 
-        if ext not in hash_list:
+        if len(hash_list) > 0 and ext not in hash_list:
             continue
 
         for f in v:
@@ -288,8 +315,9 @@ if __name__ == '__main__':
     else:
         config_data['folders'] = [
             {
-                'root_name': 'root', 
-                'folder':'/'
+                'name': 'root', 
+                'root': '/',
+                'folders':[]
             }
         ]
         with open(config_path, 'w') as outfile:
@@ -303,19 +331,12 @@ if __name__ == '__main__':
 
     data = load_pickle(picklename=picklename)
     for item in folders:
-        logger.info('Scanning...\n\t{} -> {}'.format(item.get('root_name'), item.get('folder')))
-        copy_files.append("{}.pickle".format(item.get('root_name')))
+        logger.info('Scanning...\n\t{} -> {} : {} '.format(item.get('name'), item.get('root'), item.get('folders')))
+        copy_files.append("{}.pickle".format(item.get('name')))
 
-        data[item.get('root_name')] = scan_folders(folder=item.get('folder'), root_name=item.get('root_name'), hash_list=hash_list)
-        data[item.get('root_name')] = update_hashes(data=data[item.get('root_name')], root_name=item.get('root_name'), hash_list=hash_list)
+        data[item.get('name')] = scan_folders(folder=item, hash_list=hash_list)
+        #data[item.get('name')] = update_hashes(data=data[item.get('name')], name=item.get('name'), hash_list=hash_list)
+        file_name = "get_files_{}.json".format(item.get('name'))
+        save_json(file_name=file_name, data=data[item.get('name')])
 
     save_pickle(data=data, picklename=picklename)
-
-    # upload the pickles to the one drive....
-    archive_folders = ['~', 'OneDrive - Great Canadian Railtour Co', 'Jupyter_NB', 'output']
-    archive_path = os.path.expanduser(os.path.join(*archive_folders))
-
-
-            
-
-

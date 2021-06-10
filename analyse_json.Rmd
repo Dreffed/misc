@@ -1,0 +1,996 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.11.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+#### extract tentative schema from large json files
+* Assumes the json is single level deep
+* no nested JSON objects
+
+
+#### install this and reload if missing
+
+```{python active="", eval=FALSE}
+!pip install ijson
+!pip install sqlalchemy
+```
+
+#### import the libraries
+
+```{python}
+import ijson
+import json
+import os
+import math
+import re
+
+from decimal import Decimal
+from datetime import datetime
+import time
+import numpy as np
+import pandas as pd
+from pandas_profiling import ProfileReport
+from sqlalchemy import create_engine, event
+import pyodbc
+
+from utils_sqlsver import get_db
+from utils_files import scan_files, get_filename, get_file_metadata
+from utils import load_pickle, save_pickle, load_json
+
+import logging
+from logging.config import fileConfig
+
+logger = logging.getLogger(__name__)
+```
+
+```{python}
+mapping_prefix = "--mappings"
+df_prefix = "--dataframe"
+name_prefix = "--names"
+```
+
+#### Helper functions
+
+```{python tags=c()}
+def parse_json(json_filename):
+    with open(json_filename, 'rb') as f:
+        # load json iteratively
+        parser = ijson.parse(f)
+        for prefix, event, value in parser:
+            yield {
+                "prefix": prefix, 
+                "event": event, 
+                "value": value
+            }
+```
+
+```{python tags=c()}
+def parse_jsonstructure(url):
+    with open(url) as f:
+        for event, value in ijson.basic_parse(f):
+            yield {
+                "event": event,
+                "value": value
+            }
+```
+
+```{python tags=c()}
+def head(url, n=100):
+    lines = []
+    try:
+        with open(url) as f:
+            lines = [next(f) for x in range(n)]
+    except Exception as ex:
+        print(ex)
+        
+    return lines
+```
+
+```{python tags=c()}
+def head_two(url, n=100):
+    try:
+        with open(url) as f:
+            for idx in range(n):
+                if idx > n:
+                    break
+                yield next(f)
+    except:
+        pass
+```
+
+```{python tags=c()}
+def roundup(x):
+    return int(math.ceil(x / 10.0)) * 10
+```
+
+```{python}
+def print_schema(data, options):
+    for t,t_v in data.items():
+        if t[:2] != "--":
+            if isinstance(t_v, dict):
+                print("{}:".format(t))
+                for f in options.get("show",[]):
+                    if t_v.get(f):
+                        print("\t{}: {}".format(f, t_v.get(f,"--")))
+
+                total = t_v.get("records",0)
+                if "fields" in options.get("show",[]):
+                    print("\tFields:")
+                    for f, f_v in t_v.get("keys", {}).items():
+                        if "popn" in options.get("show",[]):
+                            count = f_v.get("count", 0) // 2
+                            print("\t\t{:25}\t{} => {:.2%}".format(f, count, (count / total if total != 0 else 0)))                
+                        else:
+                            print("\t\t{}".format(f))
+                        if "metadata" in options.get("show",[]):
+                            for md in options.get("md_fields",[]):
+                                print("\t\t\t{}:{}".format(md,f_v.get(md, "--")))
+                                
+    if ("config" in options.get("show", [])):
+        for t,t_v in data.items():
+            if t[:2] == "--":
+                print("{} {}".format(t, len(t_v)))
+                for f in options.get("cfg_fields",[]):
+                    if t_v.get(f):
+                        print("\t{}:{}".format(f, t_v.get(f)))
+```
+
+```{python tags=c()}
+def checkfield(prefix, event, value, data={}, mappings=[]):
+    """Will check the field and return the type and value of the field"""
+    field_name = data.get("name")
+    field_type = data.get("type")
+    field_length = data.get("length", 0)
+    field_can_null = data.get("cannull")
+    field_count = data.get("count", 0)
+    types_encountered = data.get("encountered", [])
+    sql_type = data.get("sqltype")
+    field_rules = data.get("rules", [])
+   
+    try:
+        # check for null values...
+        if value == "null":
+            field_can_null = "yes"
+
+        current_type = type(value)
+        if field_type is None:
+            field_type = current_type
+
+        # get the field length...
+        if event == "string":
+            current_length = len(value)
+            if current_length > field_length:
+                field_length = roundup(current_length)
+
+        if current_type not in types_encountered:
+            types_encountered.append(current_type)
+
+        # now try to convert the field, if found...
+        # first match exits...
+        for test_map in mappings:
+            if not isinstance(test_map, dict):
+                continue
+                
+            fstr = test_map.get("format")            
+            cstr = test_map.get("convert")
+            
+            if event in test_map.get("applyto"):
+                # we can test if this works
+                test_regex = test_map.get("regex")
+                if test_regex:
+                    m = test_regex.match(value)
+                    if m:
+                        # build out the value...
+                        if "groups" in test_map:
+                            g = {}
+                            for i, f in enumerate(test_map.get("groups",[])):
+                                g[f] = int(m.group(i+1))
+                                
+                            if g:
+                                if test_map.get("mapsto") in ["DATETIME", "DATE"]:
+                                    value = datetime(**g).strftime(fstr)
+                                    
+                        elif "convert" in test_map:
+                            if test_map.get("mapsto") in ["TIME"]:
+                                ts = datetime.strptime(value, format(cstr)) 
+                                value = ts.strftime(fstr)
+                            
+                        if test_map.get("uselength"):
+                            sql_type = "{}({})".format(test_map.get("mapsto"), field_length)
+                        else:
+                            sql_type = test_map.get("mapsto")
+                        break
+                else:
+                    # check can this bee mapped to the field
+                    if isinstance(current_type, type(test_map.get("type"))):
+                        if test_map.get("uselength"):
+                            sql_type = "{}({})".format(test_map.get("mapsto"), field_length)
+                        else:
+                            sql_type = test_map.get("mapsto")
+                        break
+        
+        return {
+            "name": field_name,
+            "type": field_type,
+            "length": field_length,
+            "cannull": field_can_null,
+            "sqltype": sql_type,
+            "count": field_count+1,
+            "encountered": types_encountered,
+            "value": value
+        }
+    except:
+        obj = {
+            "name": field_name,
+            "type": field_type,
+            "length": field_length,
+            "cannull": field_can_null,
+            "sqltype": sql_type,
+            "count": field_count+1,
+            "encountered": types_encountered,
+            "value":value
+        }
+        print("ERROR: P: {} E: {} V: {}\n\tD: {}\n\tO: {}".format(prefix, event, value, data, obj))
+        raise
+```
+
+#### Settings and Config
+
+```{python}
+locations = {
+    "config":{
+        "root": ".",
+        "folders": ["data"],
+        "name":"RECBC_config",
+        "ext":".json"
+    }
+}
+```
+
+```{python}
+config_path = get_filename(locations.get("config"))
+config_file = get_file_metadata(config_path, options={"stats":True})
+print(config_file)
+config = load_json(config_path)
+```
+
+```{python tags=c()}
+scan_path = get_filename(config.get("locations",{}).get("sources"))
+print(scan_path)
+```
+
+```{python}
+data_path = get_filename(config.get("locations",{}).get("data_folder"))
+print(data_path)
+```
+
+```{python}
+# load the map schema from a file
+map_schema = load_pickle(picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format("map_schema")))
+```
+
+```{python tags=c()}
+# <TODO: expand to handle an array of items for each file and nexted items, grouped by prefix>
+if name_prefix in map_schema:
+    names = map_schema.get(name_prefix,{})
+else:
+    names = config.get("names", {})
+    map_schema[name_prefix] = names
+
+```
+
+### show the current schema...
+
+```{python}
+schema_opts = {
+    "show": ["config", "filedate", "records", "encountered", "fields", "metadata"], # "config", "filedate", "records", "indent", "sql", "fields", "metadata", "popn"
+    "md_fields": ["type", "sqltype", "encountered", "field_type"], # "type", "sqltype", "length", "value", "encountered"
+    "cfg_fields": ["updated", "update", "--updated", "checked"], #"updated", "update", "--updated"
+}
+
+print("Loaded Schema ")
+print_schema(data=map_schema, options=schema_opts)
+```
+
+#### List the files
+
+```{python}
+for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
+    if f.get("ext","") in config.get("locations",{}).get("sources",{}).get("filter",{}).get("exts",[]):
+        table_name = names.get("{}{}".format(f.get("file",""), f.get("ext","")),{}).get("tablename")
+        
+        if not table_name:
+            table_name = f.get("file","")
+            
+        if table_name not in map_schema:
+            map_schema[table_name] = {
+                "keys": {},
+                "records": 0
+            }
+        else:
+            # check the date of the file against the scan info...
+            if f.get("modified","**") == map_schema.get(table_name).get("filedate","--"):
+                print("SKIPPING scan: {file} hasn't changed since {modified}".format(**f))
+                continue
+            
+        file_path = os.path.join(f.get("folder", ""), "{}{}".format(f.get("file", ""), f.get("ext", "")))
+        print("{} => {} [{}]".format(file_path, f.get("bytes"), f.get("modified")))
+
+```
+
+#### read the first _n_ events from each file...
+
+```{python}
+n = 50
+
+for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
+    if f.get("ext","") in config.get("locations",{}).get("sources",{}).get("filter",{}).get("exts",[]):
+        table_name = names.get("{}{}".format(f.get("file",""), f.get("ext","")),{}).get("tablename")
+        
+        if not table_name:
+            table_name = f.get("file","")
+            
+        if table_name not in map_schema:
+            map_schema[table_name] = {
+                "keys": {},
+                "records": 0
+            }
+        else:
+            # check the date of the file against the scan info...
+            if f.get("modified","**") == map_schema.get(table_name).get("filedate","--"):
+                print("SKIPPING scan: {file} hasn't changed since {modified}".format(**f))
+                continue
+        
+        file_path = os.path.join(f.get("folder", ""), "{}{}".format(f.get("file", ""), f.get("ext", "")))
+        print("{} => {}".format(file_path, f.get("bytes")))
+        for idx, e in enumerate(parse_json(file_path)):
+            print(e)
+            if idx > n:
+                break
+
+```
+
+#### get the fields and counts
+
+```{python}
+for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
+    if f.get("ext","") in config.get("locations",{}).get("sources",{}).get("filter",{}).get("exts",[]):
+        file_path = os.path.join(f.get("folder", ""), "{}{}".format(f.get("file", ""), f.get("ext", "")))
+        print("{} => {}".format(file_path, f.get("bytes")))
+        
+        table_name = names.get("{}{}".format(f.get("file",""), f.get("ext","")),{}).get("tablename")
+        
+        if not table_name:
+            table_name = f.get("file","")
+            
+        if table_name not in map_schema:
+            map_schema[table_name] = {
+                "keys": {},
+                "records": 0
+            }
+        else:
+            # check the date of the file against the scan info...
+            if f.get("modified","**") == map_schema.get(table_name).get("filedate","--"):
+                print("\tSKIPPING scan: {file} hasn't changed since {modified}".format(**f))
+                continue
+                      
+        keys = {}
+        row = {}
+        max_indent = 0
+        indent = 0
+        count = 0
+        for idx, e in enumerate(parse_jsonstructure(file_path)):
+            event = e.get("event", "")
+            value = e.get("value")
+            if event == "map_key":
+                if value not in keys:
+                    keys[value] = 0
+                keys[value] += 1
+            elif event == "start_map":
+                indent += 1
+                count += 1
+            elif event == "end_map":
+                indent -= 1
+            
+            if indent > max_indent:
+                max_indent = indent
+                
+            #if idx % 1000000 == 0:
+            #    print("{} {}".format(idx, e))
+                
+        print("objs")
+        for k,v in keys.items():
+            print("\t{}:{}".format(k,v))
+        print("max indent: {}".format(max_indent))
+        print("count: {}".format(count))
+        
+        # update the counts and metadata...
+        map_schema[table_name]["file"] = f
+        map_schema[table_name]["filedate"] = f.get("modified")
+        map_schema[table_name]["records"] = count
+        map_schema[table_name]["indent"] = max_indent
+```
+
+#### build out the model, to help check types, lengths etc..
+
+```{python active="", eval=FALSE}
+del map_schema[mapping_prefix]
+```
+
+```{python tags=c()}
+updated = "2021-06-07"
+lastupdated = None
+
+mappings = {}
+
+if mapping_prefix in map_schema:
+    print("LOADING {}".format(mapping_prefix))
+    mappings = map_schema.get(mapping_prefix,{}).get("mappings",[])
+    lastupdated = map_schema.get(mapping_prefix,{}).get("updated")
+    
+print("CHECKING M: {} L: {} U: {}".format(len(mappings), lastupdated, updated))
+
+if not mappings or (len(mappings) == 0) or (updated != lastupdated):
+    print("UPDATING {}".format(mapping_prefix))
+    map_schema[mapping_prefix] ={
+        "updated": updated,
+        "mappings": [
+            {
+                "name": "bool",
+                "examples": [
+                    True,
+                    False
+                ],
+                "applyto": ["boolean"],
+                "mapsto": "BIT",
+                "checktypes": ["bool"]
+            },
+            {
+                "name": "integer",
+                "applyto": ["number"],
+                "mapsto": "INT",
+                "checktypes": ["int"]
+            },
+            {
+                "name": "float",
+                "applyto": ["number"],
+                "mapsto": "NUMERIC(18)",
+                "checktypes": ["float"]
+            },
+            {
+                "name": "decimal",
+                "applyto": ["number"],
+                "mapsto": "DECIMAL(18,4)",
+                "checktypes": ["decimal.Decimal"]
+            },
+            {
+                "name": "datetime (zulu)",
+                "examples": [
+                    "2005-03-31T18:15:51.640",
+                    "2020-10-01T19:21:09.160"
+                ],
+                "regex": re.compile(r"^([\d]{4})-([\d]{2})-([\d]{2})T([\d]{2}):([\d]{2}):([\d]{2})\.[\d]+$"),
+                "applyto": ["string"],
+                "mapsto": "DATETIME",
+                "groups": ["year", "month", "day", "hour", "minute", "second"],
+                "format": "%Y-%m-%d %H:%M:%S.%f"
+            },
+            {
+                "name": "datetime (iso)",
+                "examples": [
+                    "2005-03-31T18:15:51"
+                ],
+                "regex": re.compile(r"^([\d]{4})-([\d]{2})-([\d]{2})T([\d]{2}):([\d]{2}):([\d]{2})$"),
+                "applyto": ["string"],
+                "mapsto": "DATETIME",
+                "groups": ["year", "month", "day", "hour", "minute", "second"],
+                "format": "%Y-%m-%d %H:%M:%S"
+            },
+            {
+                "name": "date (short)",
+                "examples": [
+                    "2005-03-31"
+                ],
+                "regex": re.compile(r"^([\d]{4})-([\d]{2})-([\d]{2})$"),
+                "applyto": ["string"],
+                "mapsto": "DATE",
+                "groups": ["year", "month", "day"],
+                "format": "%Y-%m-%d"
+            },
+            {
+                "name": "time (apm)",
+                "examples": [
+                    "5:15PM",
+                    "5:30AM",
+                    "12:47PM",
+                    "2:08PM",
+                    "6:36PM",
+                    "11:50AM",
+                    "12:35PM"
+                ],
+                "regex": re.compile(r"^([0-9]{1,2}):([0-9]{2})(AM|PM)$"),
+                "applyto": ["string"],
+                "mapsto": "TIME",
+                "convert": "%I:%M%p",
+                "format": "%H:%M:%S"
+            },
+            {
+                "name": "email (long)",
+                "examples": [
+                    "info@recbc.ca \"Real Estate Council of BC\""
+                ],
+                "regex": re.compile(r"^([a-zA-Z0-9._\-]+)[@]([a-zA-Z0-9._\-]+)[.](\w{2,3})\s+(\".*\")$"),
+                "applyto": ["string"],
+                "mapsto": "NVARCHAR",
+                "uselength": True
+            },
+            {
+                "name": "email (short)",
+                "examples": [
+                    "info@recbc.ca"
+                ],
+                "regex": re.compile(r"^([a-zA-Z0-9._\-]+)[@]([a-zA-Z0-9._\-]+)[.](\w{2,3})$"),
+                "applyto": ["string"],
+                "mapsto": "NVARCHAR",
+                "uselength": True
+            },
+            {
+                "name": "string",
+                "applyto": ["string"],
+                "mapsto": "NVARCHAR",
+                "uselength": True,
+                "canreplace": True
+            }   
+        ]
+    }
+    mappings = map_schema.get(mapping_prefix, {}).get("mappings")
+```
+
+```{python}
+if not map_schema.get(mapping_prefix,{}).get("checked"):
+    for idx, test_map in enumerate(mappings):
+        if not isinstance(test_map, dict):
+            print("skipping: {} {}".format(idx, test_map))
+            continue
+            
+        print("Checking: {} {} :{}".format(idx, test_map.get("name"), len(test_map.get("examples",[]))))
+        test_regex = test_map.get("regex")
+        for e in test_map.get("examples",[]):
+            fstr = test_map.get("format")
+            cstr = test_map.get("convert")
+
+            if test_regex:
+                m = test_regex.match(e)
+                if m:
+                    print("\t{} => {}".format(e, m.groups()))
+                    if "groups" in test_map:
+                        g = {}
+                        for i, f in enumerate(test_map.get("groups",[])):
+                            try:
+                                g[f] = int(m.group(i+1))
+                            except ValueError:
+                                g[f] = m.group(i+1)
+
+                        if g:
+                            if test_map.get("mapsto") in ["DATETIME", "DATE"]:
+                                print("\t\tDate => {}".format(datetime(**g)))
+                            else:
+                                print("\t\tG    => {}".format(g))
+
+                    elif "convert" in test_map:
+                        if test_map.get("mapsto") in ["TIME"]:
+                            ts = datetime.strptime(e, format(cstr)) 
+                            value = ts.strftime(fstr)
+                            print("\t\tTime => {} {} {} {}".format(e, value, cstr, fstr))
+                        else:
+                            print("CONVERT FAILED: {}".format(test_map))
+                else:
+                    print("\t{}".format(e))
+            else:
+                print("\t{}".format(e))
+    map_schema[mapping_prefix]["checked"] = datetime.now().strftime("%Y-%m-%d")
+    map_schema[mapping_prefix]["load"] = None
+    if df_prefix not in map_schema:
+        map_schema[df_prefix] = {}
+        
+    map_schema[df_prefix]["load"] = None
+    map_schema[df_prefix]["processed"] = None
+
+print("CHECKED {}".format(map_schema.get(mapping_prefix,{}).get("checked")))
+    
+```
+
+```{python}
+if not map_schema.get(mapping_prefix,{}).get("load"):
+    for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
+        if f.get("ext","") in config.get("locations",{}).get("sources",{}).get("filter",{}).get("exts",[]):
+            file_path = os.path.join(f.get("folder", ""), "{}{}".format(f.get("file", ""), f.get("ext", "")))
+            print("{} => {}".format(file_path, f.get("bytes")))
+            
+            table_name = names.get("{}{}".format(f.get("file",""),f.get("ext","")),{}).get("tablename")
+            if not table_name:
+                table_name = f.get("file","")
+
+            if table_name not in map_schema:
+                map_schema[table_name] = {
+                    "keys": {}
+                }
+
+            # the holding numbers...
+            keys = map_schema.get(table_name,{}).get("keys", {})
+            rows = []
+            row = {}
+
+            # process the file...
+            for idx, e in enumerate(parse_json(file_path)):
+                prefix = e.get("prefix")
+                event = e.get("event")
+                value = e.get("value")
+
+                if event == "map_key":
+                    field_name = value
+                    if value not in keys:
+                        keys[value] = {"name": field_name}
+
+                elif event == "start_map":
+                    # beginning of object
+                    if row:
+                        rows.append(row)
+
+                    row = {}
+
+                elif event == "end_map":
+                    # end of object record
+                    rows.append(row)
+                    row = None
+
+                elif event =="start_array":
+                    # in array
+                    pass
+
+                elif event =="end_array":
+                    # array finished
+                    pass
+
+                else:
+                    keys[field_name] = checkfield(prefix=prefix, event=event, value=value, data=keys.get(field_name,{}), mappings=mappings)
+                    row[field_name] = keys.get(field_name,{}).get("value", value)
+
+                #print("{} {} {} => {}".format(prefix, event, value, field_name))
+
+                """
+                if idx > 100:
+                    for r in rows:
+                        print(row)
+
+                    break
+                """
+
+            print("Rows: {} {}".format(table_name, len(rows)))
+            map_schema[table_name]["keys"] = keys
+            pickle_path = os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format(table_name))
+            save_pickle(data=rows, picklename=pickle_path)
+    
+    # update the load
+    map_schema[mapping_prefix]["load"] = datetime.now().strftime("%Y-%m-%d")
+    # save...
+    save_pickle(data=map_schema, picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format("map_schema")))
+else:
+    print("JSON processed for data {}".format(map_schema.get(mapping_prefix,{}).get("load")))
+
+```
+
+## Save the found metadata
+
+```{python}
+if not map_schema:
+    map_schema = load_pickle(picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format("map_schema")))
+```
+
+```{python}
+schema_opts = {
+    "show": ["records", "fields", "metadata"], # "config", "sql", "records", "fields", "metadata", "popn"
+    "md_fields": ["type", "sqltype", "encountered"], # "type", "sqltype", "length", "value", "encountered"
+    "cfg_fields": ["updated", "update", "--updated"], #"updated", "update", "--updated"
+}
+
+print("Discovered Schema ")
+print_schema(data=map_schema, options=schema_opts)
+```
+
+### Export to dataframe and other areas...
+
+```{python active="", eval=FALSE}
+!pip install pandas_profiling
+```
+
+```{python}
+export_path = get_filename(config.get("locations",{}).get("export_schema"))
+print(export_path)
+```
+
+```{python active="", eval=FALSE}
+del map_schema[df_prefix]["processed"]
+```
+
+```{python}
+# eport schema...
+s_rows = []
+print("Export Schema ")
+if not map_schema.get(df_prefix,{}).get("processed"):
+    for t,t_v in map_schema.items():
+        if t[:2] == "--":
+            continue
+
+        if isinstance(t_v, dict):
+            total = t_v.get("records", 0)
+            sql = []
+            sql.append("")
+            sql.append("-- /* ***** {} table ** {} *****".format(t, t_v.get("filedate","--")))
+            sql.append("IF  EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[{}]') AND type in (N'U'))".format(t))
+            sql.append("DROP TABLE [dbo].[{}];".format(t))
+            sql.append("GO\n\n")
+            sql.append("CREATE TABLE {} (".format(t))
+            for f, f_v in t_v.get("keys", {}).items():
+                # used for clean up
+                #del f_v["profile"]
+
+                if "profile" not in f_v:
+                    count = f_v.get("count", 0) // 2
+                    f_v["profile"] = (count / total if total != 0 else 0)
+
+                if f_v.get("profile", 0.0) >= 1.0:
+                    f_v["cannull"] = " NOT NULL"
+                else:
+                    f_v["cannull"] = " NULL"
+
+                row = {
+                    "table": t,
+                    "column": f_v.get("name"),
+                    "length": f_v.get("length"),
+                    "type": f_v.get("sqltype"),
+                    "null": f_v.get("cannull"),
+                    "profile": f_v.get("profile")
+                }
+                s_rows.append(row)
+
+                sql.append("\t[{name}] {sqltype}{cannull},".format(**f_v))
+
+            sql.append(");")
+            sql.append("GO\n-- */\n")
+            
+            t_v["sql"] = "\n".join(sql)
+        
+        # enable the data to reload
+        if "load" in map_schema.get(t, {}):
+            del map_schema[t]["load"]
+
+    print("columns: {}".format(len(s_rows)))
+    df_schema = pd.DataFrame(s_rows)
+    display(df_schema.head)
+
+    # export to excel
+    df_schema.to_excel(export_path, sheet_name="schema", index=False)
+    
+    # update the load
+    if df_prefix not in map_schema:
+        map_schema[df_prefix] = {}
+        
+    map_schema[df_prefix]["processed"] = datetime.now().strftime("%Y-%m-%d")
+                       
+    # save the map schema
+    save_pickle(data=map_schema, picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format("map_schema")))
+else:
+    print("Dataframe processed for data {}".format(map_schema.get(df_prefix,{}).get("processed")))    
+
+```
+
+```{python}
+# save off the SQL script to the drive...
+sql_filepath = get_filename(config.get("locations",{}).get("export_sql_create"))
+with open(sql_filepath, "w") as f:
+    for t,t_v in map_schema.items():
+        if t[:2] == "--":
+            continue
+
+        if isinstance(t_v, dict):
+            f.writelines(t_v.get("sql"))
+            
+print("exported CREATE statements {}".format(sql_filepath))
+```
+
+```{python}
+pickle_path = get_filename(config.get("locations",{}).get("data_folder"))
+print(pickle_path)
+```
+
+```{python}
+# load each pickle into into a pandas table and profile...
+for f in scan_files(folder=pickle_path, options=config.get("scan_options", {})):
+    if f.get("ext") == ".pickle":
+        fn = f.get("file","")
+        fe = f.get("ext","")
+        if fn in map_schema:
+            if map_schema.get(fn, {}).get("load"):
+                if map_schema.get(fn, {}).get("load") == map_schema.get(df_prefix,{}).get("processed"):
+                    # already processed...
+                    print("{:25}\tALREADY processed!".format(fn))
+                    continue
+                    
+            table_name = fn
+            keys = map_schema.get(fn, {}).get("keys",{})
+            datecols = []
+            timecols = []
+            
+            print("Analyzing: {}...".format(table_name))
+            
+            # get the date, datetime columns
+            for k,v in keys.items():
+                if v.get("sqltype") in ["DATE", "DATETIME"]:
+                    datecols.append(k)
+                if v.get("sqltype") in ["TIME"]:
+                    timecols.append(k)
+                    
+            #load the data...
+            data = load_pickle(os.path.join(f.get("folder",""), "{}{}".format(f.get("file",""), f.get("ext",""))))
+            df = pd.DataFrame(data)
+            data = None
+            
+            display(df.dtypes)
+            
+            for c in datecols:
+                df[c] = pd.to_datetime(df[c], format='%Y-%m-%d %H:%M:%S')
+            for c in timecols:
+                df[c] = pd.to_datetime(df[c], format='%H:%M:%S')
+            
+            # now profile the df
+            profile = ProfileReport(df, title="Pandas Profiling Report - {}".format(table_name), minimal=True, explorative=True)
+            profile.to_file(os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.html".format(table_name)))
+            profile.to_file(os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.json".format(table_name)))
+            
+            map_schema[fn]["load"] = map_schema.get(df_prefix,{}).get("processed")
+            
+            # save the datafram
+            save_pickle(data=df, picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.df.pickle".format(table_name)))
+            
+            # save...
+            save_pickle(data=map_schema, picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format("map_schema")))
+```
+
+```{python}
+schema_opts = {
+    "show": ["config", "load", "records"], # "config", "sql", "records", "fields", "metadata", "popn", "load"
+    "md_fields": ["type", "sqltype"], # "type", "sqltype", "length", "value", "encountered"
+    "cfg_fields": ["updated", "update", "--updated", "processed", "load"], #"updated", "update", "--updated"
+}
+
+print("Discovered Schema ")
+print_schema(data=map_schema, options=schema_opts)
+```
+
+### upload the data to the database....
+
+```{python}
+#reload the config
+config = load_json(config_path)
+```
+
+```{python}
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import URL
+```
+
+```{python}
+# connect to the database...
+db_conn = get_db(config.get("database", {}))
+if db_conn:
+    print("connected to database...")
+else:
+    print("ERROR: Connection failed!")
+    
+pyodbc.connect('mssql+pyodbc://{username}:{password}@{server}/{database}?driver=SQL+Server'.format(**config))
+```
+
+```{python}
+conn_str = None
+if "sspi" in config.get("database", {}):
+    # Data Source=AARDVARK;Initial Catalog=RECBC;Provider=MSOLEDBSQL.1;Persist Security Info=False;Integrated Security=SSPI;
+    # Data Source=AARDVARK;Initial Catalog=RECBC;Integrated Security=SSPI;
+    conn_str = "Driver={driver};Server={server};Database={database};".format(**config.get("database"))
+    conn_url = "mssql+pyodbc://{server}/{database}?driver=SQL+Server+Native+Client+11.0&trusted_connection=yes".format(**config.get("database"))
+
+elif "username" in config.get("database", {}) and "password" in config.get("database", {}):
+    conn_str = "DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}".format(**config.get("database"))
+
+if conn_str:
+    print(conn_str)
+    #conn_url = URL.create("mssql+pyodbc", query={"odbc_connect": conn_str})
+    print(conn_url)
+    engine = create_engine(conn_url)
+    #db_conn = engine.connect()
+    print(engine)
+```
+
+```{python}
+@event.listens_for(engine, "before_cursor_execute")
+def receive_before_cursor_execute(
+       conn, cursor, statement, params, context, executemany
+        ):
+            if executemany:
+                cursor.fast_executemany = True
+```
+
+```{python}
+# load map_schema...
+print("Export Data from {} to DB...".format(get_filename(config.get("locations",{}).get("data_folder"))))
+if not map_schema.get(mapping_prefix,{}).get("uploaded"):
+    for t,t_v in map_schema.items():
+        if t[:2] == "--":
+            continue
+        try:
+            if t_v.get("upload"):
+                if t_v.get("upload") == map_schema.get(df_prefix,{}).get("processed"):
+                    # already processed...
+                    print("{:25}\tALREADY processed!".format(t))
+                    continue
+
+            # we have a dat file and set...
+            if isinstance(t_v, dict):
+                # create INSERT statement...
+                sql = {
+                    "root": "INSERT INTO {} ".format(t),
+                    "fields": [],
+                    "values": []
+                }
+                for k,k_v in t_v.get("keys", {}).items():
+                    sql["fields"].append(k)
+                    sql["values"].append("?")
+
+                # load up the data file...
+                file_path = os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.df{}".format(t, ".pickle"))
+                if os.path.exists(file_path): 
+                    print("Loading {}".format(file_path))
+                    df = load_pickle(picklename=file_path)
+                else:
+                    print("ERROR: can't locate {}".format(file_path))
+                    continue
+
+                # check the table exists...
+                if not isinstance(df, pd.DataFrame):
+                    print("Dataframe did not load")
+                    continue
+
+                # run the insert...
+                print("loading dataframe to sql server...{} {}".format(df.shape, datetime.now()))
+
+                # see https://medium.com/analytics-vidhya/speed-up-bulk-inserts-to-sql-db-using-pandas-and-python-61707ae41990
+                with engine.begin() as connection:
+                    df.to_sql(t, con=connection, if_exists='append', index=False, chunksize=10000)
+                t_v["upload"] = map_schema.get(df_prefix,{}).get("processed")
+                print("Uploaded {}".format(datetime.now()))
+
+                # save...
+                save_pickle(data=map_schema, picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format("map_schema")))            
+        except Exception as ex:
+            print("ERROR encoutered! {}".format(ex))
+```
+
+### mark job finished...
+
+```{python tags=c()}
+print("complete")
+```
+
+```{python}
+
+```
