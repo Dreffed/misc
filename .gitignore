@@ -12,8 +12,6 @@
 *.ipynb
 __pycache__/
 .ipynb_checkpoints/
+data/
 node_modules/
 tempCodeRunnerFile.py
-of_events.xlsx
-pil_text_font.png
-
