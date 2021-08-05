@@ -27,3 +27,11 @@ def get_doc_info(path):
     data['version'] = cp.version
     
     return data
+
+def get_doc_text(path):
+    """This will return the paragroah objects in a word document"""
+    data = []
+    doc = docx.Document(path)
+    for p in doc.paragraphs:
+        data.append(p.text)
+    return data

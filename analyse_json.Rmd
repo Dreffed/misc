@@ -128,7 +128,7 @@ def print_schema(data, options):
                     print("\tFields:")
                     for f, f_v in t_v.get("keys", {}).items():
                         if "popn" in options.get("show",[]):
-                            count = f_v.get("count", 0) // 2
+                            count = f_v.get("count", 0)
                             print("\t\t{:25}\t{} => {:.2%}".format(f, count, (count / total if total != 0 else 0)))                
                         else:
                             print("\t\t{}".format(f))
@@ -143,6 +143,13 @@ def print_schema(data, options):
                 for f in options.get("cfg_fields",[]):
                     if t_v.get(f):
                         print("\t{}:{}".format(f, t_v.get(f)))
+```
+
+```{python}
+def get_files(config, location = "sources"):
+    for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
+        if f.get("ext","") in config.get("locations",{}).get(location,{}).get("filter",{}).get("exts",[]):
+            yield f
 ```
 
 ```{python tags=c()}
@@ -275,8 +282,120 @@ print(data_path)
 ```
 
 ```{python}
-# load the map schema from a file
-map_schema = load_pickle(picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format("map_schema")))
+if config.get("options", {}).get("load", "RELOAD") == "RELOAD": # RELOAD, UPDATE
+    map_schema = {}
+else:
+    # load the map schema from a file
+    map_schema = load_pickle(picklename=os.path.join(get_filename(config.get("locations",{}).get("data_folder")), "{}.pickle".format("map_schema")))
+```
+
+```{python}
+names = {}
+sources = {}
+
+# build name map, if there is values...
+field_regex = re.compile("{(?P<field>.*)}")
+if "tablemaps" in config:
+    names = {}
+    print("building name map...")
+    for f in get_files(config, location="sources"):
+        for tm in config.get("tablemaps",[]):
+            regex = re.compile(tm.get("regex"))
+            m = regex.match(f.get("file",""))
+            if m:
+                mf = field_regex.match(tm.get("tablename",""))
+                if mf:
+                    tablename = m.group(mf.group("field"))
+                else:
+                    tablename = tm.get("tablename")
+                    
+                names["{}{}".format(f.get("file"), f.get("ext"))] = {
+                    "tablename": tablename,
+                    "prefix": tm.get("prefix")
+                }
+                if tablename not in sources:
+                    sources[tablename] = {"files": []}
+                    
+                sources[tablename]["files"].append(f)                
+                break
+                
+    # clean the existing maps...
+    if "names" in config:
+        del config["names"]
+    if name_prefix in map_schema:
+        del map_schema[name_prefix]
+        
+    config["names"] = names
+                
+for s, s_v in sources.items():
+    print("{}".format(s))
+    for f in s_v.get("files", []):
+        print("\t{}".format(f.get("file", f)))
+
+```
+
+```{python}
+def read_in_chunks(file_object, chunk_size=1024):
+    """Lazy function (generator) to read a file piece by piece.
+    Default chunk size: 1k."""
+    while True:
+        data = file_object.read(chunk_size)
+        if not data:
+            break
+        yield data
+
+con_dir = get_filename(config.get("locations",{}).get("concatenate",{}))
+if not con_dir:
+    con_dir = os.get_cwd()
+
+if not os.path.exists(con_dir):
+    print("{} path doesn't exist!".format(con_dir))
+    raise Exception("missing path")
+    
+# concatenate the files if desired...
+if config.get("options",{}).get("concatenate"):
+    print("Concatenating ot {}...".format(con_dir))
+    for s, s_v in sources.items():
+        if len(s_v.get("files", [])) > 1:
+            print("\t{}".format(s))
+            outfilename = os.path.join(con_dir, "{}_Concatenated.json".format(s))
+            if os.path.exists(outfilename):
+                # delete and create a new file.
+                os.remove(outfilename)
+                
+            with open(outfilename, "w") as outfile:
+                for f in s_v.get("files", []):
+                    print("\t\t{}".format(f.get("file", f)))
+                    filename = os.path.join(f.get("folder",""), "{}{}".format(f.get("file",""), f.get("ext","")))
+                    with open(filename) as infile:
+                        for piece in read_in_chunks(infile):
+                            outfile.write(piece)
+                    # remove the entry in the names dict...
+                    del names["{}{}".format(f.get("file",""), f.get("ext",""))]
+                    
+            f = get_file_metadata(outfilename, options=config.get("scan_options",{}))
+            print("\tconcatenated...")
+            s_v["files"] = [f]
+
+            # add in the 
+            names["{}_Concatenated.json".format(s)] = {
+                "tablename": s,
+                "prefix": "item"
+            }
+            
+    # print the names
+    print("names...")
+    for n, n_v in names.items():
+        print("\t{} => {}".format(n, n_v))
+    
+    
+    print("sources...")
+    for s, s_v in sources.items():
+        print("\t{}".format(s))
+        for f in s_v.get("files", []):
+            print("\t\t{}".format(f.get("file")))
+else:
+    print("Skipping concatenation process...")
 ```
 
 ```{python tags=c()}
@@ -287,6 +406,9 @@ else:
     names = config.get("names", {})
     map_schema[name_prefix] = names
 
+# print the names
+for n, n_v in names.items():
+    print("{} => {}".format(n, n_v))
 ```
 
 ### show the current schema...
@@ -294,8 +416,8 @@ else:
 ```{python}
 schema_opts = {
     "show": ["config", "filedate", "records", "encountered", "fields", "metadata"], # "config", "filedate", "records", "indent", "sql", "fields", "metadata", "popn"
-    "md_fields": ["type", "sqltype", "encountered", "field_type"], # "type", "sqltype", "length", "value", "encountered"
-    "cfg_fields": ["updated", "update", "--updated", "checked"], #"updated", "update", "--updated"
+    "md_fields": [], # "type", "sqltype", "length", "value", "encountered", "field_type"
+    "cfg_fields": ["updated", "update", "--updated", "checked"], #"updated", "update", "--updated", "checked", "loaded"
 }
 
 print("Loaded Schema ")
@@ -305,13 +427,13 @@ print_schema(data=map_schema, options=schema_opts)
 #### List the files
 
 ```{python}
-for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
-    if f.get("ext","") in config.get("locations",{}).get("sources",{}).get("filter",{}).get("exts",[]):
+for s, s_v in sources.items():
+    for f in s_v.get("files",[]):
         table_name = names.get("{}{}".format(f.get("file",""), f.get("ext","")),{}).get("tablename")
-        
+
         if not table_name:
             table_name = f.get("file","")
-            
+
         if table_name not in map_schema:
             map_schema[table_name] = {
                 "keys": {},
@@ -322,7 +444,7 @@ for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
             if f.get("modified","**") == map_schema.get(table_name).get("filedate","--"):
                 print("SKIPPING scan: {file} hasn't changed since {modified}".format(**f))
                 continue
-            
+
         file_path = os.path.join(f.get("folder", ""), "{}{}".format(f.get("file", ""), f.get("ext", "")))
         print("{} => {} [{}]".format(file_path, f.get("bytes"), f.get("modified")))
 
@@ -332,14 +454,21 @@ for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
 
 ```{python}
 n = 50
+skip_list = [
 
-for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
-    if f.get("ext","") in config.get("locations",{}).get("sources",{}).get("filter",{}).get("exts",[]):
+]
+
+for s, s_v in sources.items():
+    for f in s_v.get("files",[]):
         table_name = names.get("{}{}".format(f.get("file",""), f.get("ext","")),{}).get("tablename")
-        
+
+        if f.get("file","") in skip_list:
+            print("skipping {}...".format(f.get("file")))
+            continue
+
         if not table_name:
             table_name = f.get("file","")
-            
+
         if table_name not in map_schema:
             map_schema[table_name] = {
                 "keys": {},
@@ -350,7 +479,7 @@ for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
             if f.get("modified","**") == map_schema.get(table_name).get("filedate","--"):
                 print("SKIPPING scan: {file} hasn't changed since {modified}".format(**f))
                 continue
-        
+
         file_path = os.path.join(f.get("folder", ""), "{}{}".format(f.get("file", ""), f.get("ext", "")))
         print("{} => {}".format(file_path, f.get("bytes")))
         for idx, e in enumerate(parse_json(file_path)):
@@ -363,8 +492,8 @@ for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
 #### get the fields and counts
 
 ```{python}
-for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
-    if f.get("ext","") in config.get("locations",{}).get("sources",{}).get("filter",{}).get("exts",[]):
+for s, s_v in sources.items():
+    for f in s_v.get("files",[]):
         file_path = os.path.join(f.get("folder", ""), "{}{}".format(f.get("file", ""), f.get("ext", "")))
         print("{} => {}".format(file_path, f.get("bytes")))
         
@@ -428,7 +557,7 @@ del map_schema[mapping_prefix]
 ```
 
 ```{python tags=c()}
-updated = "2021-06-07"
+updated = "2021-06-10"
 lastupdated = None
 
 mappings = {}
@@ -612,8 +741,8 @@ print("CHECKED {}".format(map_schema.get(mapping_prefix,{}).get("checked")))
 
 ```{python}
 if not map_schema.get(mapping_prefix,{}).get("load"):
-    for f in scan_files(folder=scan_path, options=config.get("scan_options", {})):
-        if f.get("ext","") in config.get("locations",{}).get("sources",{}).get("filter",{}).get("exts",[]):
+    for s, s_v in sources.items():
+        for f in s_v.get("files",[]):
             file_path = os.path.join(f.get("folder", ""), "{}{}".format(f.get("file", ""), f.get("ext", "")))
             print("{} => {}".format(file_path, f.get("bytes")))
             

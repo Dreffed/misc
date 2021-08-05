@@ -27,3 +27,17 @@ def get_pptx_info(path):
     data['version'] = cp.version
     
     return data
+
+def get_pptx_text(path):
+    data = []
+    prs = pptx.Presentation(path)
+    for idx, slide in enumerate(prs.slides):
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                element = {
+                    "page": idx,
+                    "shape": shape.name,
+                    "text": shape.text
+                }
+                data.append(element)
+    return data

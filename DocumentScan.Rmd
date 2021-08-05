@@ -5,7 +5,7 @@ jupyter:
       extension: .Rmd
       format_name: rmarkdown
       format_version: '1.2'
-      jupytext_version: 1.5.2
+      jupytext_version: 1.11.2
   kernelspec:
     display_name: Python 3
     language: python
@@ -14,18 +14,31 @@ jupyter:
 
 ```{python}
 # import the libaries
-from utils_files import scan_files, make_hash
-from utils_word import get_doc_info
+from utils_files import scan_files, make_hash, get_filename
+from utils import load_pickle, save_pickle
+from utils_word import get_doc_info, get_doc_text
 from utils_excel import get_excel_info
-from utils_pptx import get_pptx_info
-from utils_pdf import get_pdf_info
+from utils_pptx import get_pptx_info, get_pptx_text
+from utils_pdf import get_pdf_info, get_pdf_text
 import os
 ```
 
 ```{python}
+config = {
+    "locations": {
+        "pickle": {
+            "root": ".",
+            "folders": ["data"],
+            "name": "docscan",
+            "ext": ".pickle"
+        }
+    }
+}
+```
+
+```{python}
 # set up the paths
-locations = [
-    {
+"""    {
         "name": "Downloads",
         "folders": ["users", "David", "Downloads"],
         "root":"D:\\"
@@ -34,31 +47,47 @@ locations = [
         "name": "BCFSA",
         "folders":["users", "David", "Google", "thoughtswin", "BCFSA"],
         "root":"D:\\"
-    }
+    },"""
+
+locations = [
+    {
+        "name": "ManitobaHydro",
+        "folders":["users", "David", "Google", "thoughtswin", "Manitoba Hydro", "EA Role"],
+        "root":"D:\\"
+    },    
 ]
 
 filetypes = [
     {    
         "type":"Word",
-        "ext":[".doc", ".docx"],
-        "infoscanner":get_doc_info
+        "ext":[".docx"],
+        "infoscanner":get_doc_info,
+        "textreader": get_doc_text
     },
     {    
         "type":"Excel",
-        "ext":[".xls", ".xlsx"],
-        "infoscanner":get_excel_info
+        "ext":[".xlsx"],
+        "infoscanner":get_excel_info,
+        "textreader": None
     },
     {    
         "type":"PowerPoint",
-        "ext":[".ppt", ".pptx"],
-        "infoscanner":get_pptx_info
+        "ext":[".pptx"],
+        "infoscanner":get_pptx_info,
+        "textreader": get_pptx_text
     },
     {    
         "type":"PDF",
         "ext":[".pdf"],
-        "infoscanner":get_pdf_info
+        "infoscanner":get_pdf_info,
+        "textreader": get_pdf_text
     }
 ]
+```
+
+```{python}
+picklename = get_filename(f=config.get("locations", {}).get("pickle", {}))
+print(picklename)
 ```
 
 ```{python}
@@ -70,7 +99,12 @@ def scanFolder(location):
     
     folder = os.path.expanduser(os.path.join(root, *folders))
     print(folder)
-    for f in scan_files(folder):
+    for f in scan_files(folder, options={"stats": True, "split": True}):
+        filepath = os.path.join(f.get("folder"), f.get("file"))
+        if filepath in files:
+            fo = files[filepath]
+            if 'doctext' in fo:
+                continue
         yield f
     
 ```
@@ -79,7 +113,7 @@ def scanFolder(location):
 def scan(locations, filetypes=None):
     """This will take a locations object and build a file list"""
     # helper list
-    fields = ["type","infoscanner"]
+    fields = ["type"] # , "infoscanner", "textreader"
     
     # pivot the filetypes list
     if filetypes is None:
@@ -95,51 +129,105 @@ def scan(locations, filetypes=None):
     for location in locations:
         for f in scanFolder(location):
             ext = f.get("ext")
+            
+            # get the hash of this file
+            path = os.path.join(f.get("folder"), f.get("file"))
+            f["hashes"] = make_hash(path)            
+            
             if ext in lookups:
                 # matched
                 for field in fields:
                     f[field] = lookups.get(ext,{}).get(field)
                 
-                # get the hash of this file
-                path = os.path.join(f.get("folder"), f.get("file"))
-                f["hashes"] = make_hash(path)
                 
-                # get the doc_info
-                f['docinfo'] = lookups.get(ext).get("infoscanner")(path)
+                try:
+                    # get the doc_info
+                    if lookups.get(ext).get("infoscanner"):
+                        f['docinfo'] = lookups.get(ext).get("infoscanner")(path)
+                except:
+                    pass
+                
+                try:
+                    # get the doc_info
+                    if lookups.get(ext).get("textreader"):
+                        f['doctext'] = lookups.get(ext).get("textreader")(path)
+                except:
+                    pass
                 
                 # return the new object
                 yield f
 ```
 
 ```{python}
-docs = {}
-names = {}
-for f in scan(locations = locations, filetypes = filetypes):
-    # build a hash index
-    hashvalue = f.get('hashes', {}).get('SHA1')
-    if hashvalue not in docs:
-        docs[hashvalue] = []
-        
-    docs[hashvalue].append(f)
+data = load_pickle(picklename=picklename)
 
-    # build a name index
-    name = f.get("file")
-    if name not in names:
-        names[name] = []
-        
-    names[name].append(f)
+docs = data.get("docs",{})
+names = data.get("names",{})
+files = data.get("files",{})
 ```
 
 ```{python}
-for k,v in names.items():
-    print("{}".format(k))
-    if isinstance(v, list):
-        for f in v:
-            #print(f)
-            path = os.path.join(f.get("folder"), f.get('file'))
-            size = f.get("size")
+for f in scan(locations = locations, filetypes = filetypes):
+    # get the filepath;
+    filepath = os.path.join(f.get("folder",""), f.get("file",""))
+    if filepath in files:
+        print("skipping file {}".format(filepath))
+    files[filepath] = f
+
+    try:        
+        # build a hash index
+        hashvalue = f.get('hashes', {}).get('SHA1')
+        if hashvalue not in docs:
+            docs[hashvalue] = []
+        
+        docs[hashvalue].append(f)
+    except Exception as ex:
+        print("ERROR HASH: {}\n\t{}".format(filepath, ex))
+        
+    try:        
+        # build a name index
+        name = f.get("file")
+        if name not in names:
+            names[name] = []
+        
+        names[name].append(f)
+    except Exception as ex:
+        print("ERROR Name: {}\n\t{}".format(filepath, ex))
+```
+
+```{python}
+phrase = "Enterprise Architecture"
+
+for k, f in files.items():
+    if isinstance(f, dict):
+        if doctext:
+            doctext = f.get("doctext")
+            print("{}\n\t{}".format(k, doctext))
             
-            print("\t{} => {}".format(size, path))
+```
+
+```{python}
+save_pickle(picklename=picklename, data={"docs": docs, "names": names, "files": files})
+```
+
+```{python}
+filename = "ARC - Potential Transition.docx"
+f = files.get(filename)
+print(f)
+```
+
+```{python}
+print(len(docs))
+```
+
+```{python}
+for idx, (k, v) in enumerate(docs.items()):
+    if isinstance(v, list) and len(v) > 1:
+        print("{} => {} {}".format(idx, k, len(v)))
+        for f in v:
+            filepath = os.path.join(f.get("folder",""), f.get("file",""))
+            print("{}".format(filepath))
+        
 ```
 
 ```{python}
